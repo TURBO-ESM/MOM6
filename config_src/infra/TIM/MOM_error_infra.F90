@@ -3,17 +3,14 @@ module MOM_error_infra
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use mpp_mod, only : mpp_error, mpp_stdlog=>stdlog
-use amrex_parallel_module, only : amrex_parallel_ioprocessor
-use amrex_IO_module, only : unit_stdout
+use mpp_mod, only : mpp_error, mpp_pe, mpp_root_pe, mpp_stdlog=>stdlog, mpp_stdout=>stdout
+use mpp_mod, only : NOTE, WARNING, FATAL
 
 implicit none ; private
 
 public :: MOM_err, is_root_pe, stdlog, stdout
 !> Integer parameters encoding the severity of an error message
 public :: NOTE, WARNING, FATAL
-
-integer, parameter :: NOTE=0, WARNING=1, FATAL=2
 
 contains
 
@@ -28,7 +25,7 @@ end subroutine MOM_err
 
 !> stdout returns the standard Fortran unit number for output
 integer function stdout()
-  stdout = unit_stdout()
+  stdout = mpp_stdout()
 end function stdout
 
 !> stdlog returns the standard Fortran unit number to use to log messages
@@ -38,7 +35,8 @@ end function stdlog
 
 !> is_root_pe returns .true. if the current PE is the root PE.
 logical function is_root_pe()
-  is_root_pe = amrex_parallel_ioprocessor()
+  is_root_pe = .false.
+  if (mpp_pe() == mpp_root_pe()) is_root_pe = .true.
 end function is_root_pe
 
 end module MOM_error_infra

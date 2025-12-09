@@ -5,7 +5,6 @@ module MOM_coms_infra
 
 use iso_fortran_env, only : int32, int64
 
-use amrex_base_module, only : amrex_init, amrex_finalize
 use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_npes, mpp_set_root_pe
 use mpp_mod, only : mpp_set_current_pelist, mpp_get_current_pelist
 use mpp_mod, only : mpp_broadcast, mpp_sync, mpp_sync_self, mpp_chksum
@@ -512,16 +511,13 @@ end function all_across_PEs
 !! If no communicator ID is provided, the framework's default communicator is used.
 subroutine MOM_infra_init(localcomm)
   integer, optional, intent(in) :: localcomm  !< Communicator ID to initialize
-  
   call fms_init(localcomm)
-  call amrex_init(comm=localcomm)
 end subroutine
 
 !> This subroutine carries out all of the calls required to close out the infrastructure cleanly.
 !! This should only be called in ocean-only runs, as the coupler takes care of this in coupled runs.
 subroutine MOM_infra_end
   call print_memuse_stats( 'Memory HiWaterMark', always=.TRUE. )
-  call amrex_finalize()
   call fms_end()
 end subroutine MOM_infra_end
 
