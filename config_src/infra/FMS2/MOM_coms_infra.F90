@@ -117,12 +117,10 @@ subroutine sync_PEs(pelist)
 end subroutine sync_PEs
 
 !> Communicate a 1-D array of character strings from one PE to others
-subroutine broadcast_char(dat, length, from_PE, PElist, blocking)
+subroutine broadcast_char(dat, length, from_PE, blocking)
   character(len=*),  intent(inout) :: dat(:)    !< The data to communicate and destination
   integer,           intent(in)    :: length    !< The length of each string
   integer, optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer, optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                !! active PE set as previously set via Set_PElist.
   logical, optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -131,18 +129,16 @@ subroutine broadcast_char(dat, length, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, length, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, length, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_char
 
 !> Communicate an integer from one PE to others
-subroutine broadcast_int64_0D(dat, from_PE, PElist, blocking)
+subroutine broadcast_int64_0D(dat, from_PE, blocking)
   integer(kind=int64),   intent(inout) :: dat       !< The data to communicate and destination
   integer,     optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,     optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                    !! active PE set as previously set via Set_PElist.
   logical,     optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -151,19 +147,17 @@ subroutine broadcast_int64_0D(dat, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_int64_0D
 
 
 !> Communicate an integer from one PE to others
-subroutine broadcast_int32_0D(dat, from_PE, PElist, blocking)
+subroutine broadcast_int32_0D(dat, from_PE, blocking)
   integer(kind=int32),   intent(inout) :: dat       !< The data to communicate and destination
   integer,     optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,     optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                    !! active PE set as previously set via Set_PElist.
   logical,     optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -172,19 +166,17 @@ subroutine broadcast_int32_0D(dat, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_int32_0D
 
 !> Communicate a 1-D array of integers from one PE to others
-subroutine broadcast_int1D(dat, length, from_PE, PElist, blocking)
+subroutine broadcast_int1D(dat, length, from_PE, blocking)
   integer, dimension(:), intent(inout) :: dat       !< The data to communicate and destination
   integer,               intent(in)    :: length    !< The number of data elements
   integer,     optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,     optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                    !! active PE set as previously set via Set_PElist.
   logical,     optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -193,18 +185,16 @@ subroutine broadcast_int1D(dat, length, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, length, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, length, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_int1D
 
 !> Communicate a real number from one PE to others
-subroutine broadcast_real0D(dat, from_PE, PElist, blocking)
+subroutine broadcast_real0D(dat, from_PE,blocking)
   real,                 intent(inout) :: dat       !< The data to communicate and destination
   integer,    optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,    optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                   !! active PE set as previously set via Set_PElist.
   logical,    optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -213,19 +203,17 @@ subroutine broadcast_real0D(dat, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_real0D
 
 !> Communicate a 1-D array of reals from one PE to others
-subroutine broadcast_real1D(dat, length, from_PE, PElist, blocking)
+subroutine broadcast_real1D(dat, length, from_PE, blocking)
   real, dimension(:),   intent(inout) :: dat       !< The data to communicate and destination
   integer,              intent(in)    :: length    !< The number of data elements
   integer,    optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,    optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                   !! active PE set as previously set via Set_PElist.
   logical,    optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -234,19 +222,17 @@ subroutine broadcast_real1D(dat, length, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, length, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, length, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_real1D
 
 !> Communicate a 2-D array of reals from one PE to others
-subroutine broadcast_real2D(dat, length, from_PE, PElist, blocking)
+subroutine broadcast_real2D(dat, length, from_PE, blocking)
   real, dimension(:,:), intent(inout) :: dat       !< The data to communicate and destination
   integer,              intent(in)    :: length    !< The total number of data elements
   integer,    optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,    optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                   !! active PE set as previously set via Set_PElist.
   logical,    optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -255,19 +241,17 @@ subroutine broadcast_real2D(dat, length, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, length, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, length, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_real2D
 
 !> Communicate a 3-D array of reals from one PE to others
-subroutine broadcast_real3D(dat, length, from_PE, PElist, blocking)
+subroutine broadcast_real3D(dat, length, from_PE, blocking)
   real, dimension(:,:,:), intent(inout) :: dat       !< The data to communicate and destination
   integer,              intent(in)    :: length    !< The total number of data elements
   integer,    optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
-  integer,    optional, intent(in)    :: PElist(:) !< The list of participating PEs, by default the
-                                                   !! active PE set as previously set via Set_PElist.
   logical,    optional, intent(in)    :: blocking  !< If true, barriers are added around the call
 
   integer :: src_PE   ! The processor that is sending the data
@@ -276,9 +260,9 @@ subroutine broadcast_real3D(dat, length, from_PE, PElist, blocking)
   do_block = .false. ; if (present(blocking)) do_block = blocking
   if (present(from_PE)) then ; src_PE = from_PE ; else ; src_PE = root_PE() ; endif
 
-  if (do_block) call mpp_sync(PElist)
-  call mpp_broadcast(dat, length, src_PE, PElist)
-  if (do_block) call mpp_sync_self(PElist)
+  if (do_block) call mpp_sync()
+  call mpp_broadcast(dat, length, src_PE)
+  if (do_block) call mpp_sync_self()
 
 end subroutine broadcast_real3D
 
