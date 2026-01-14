@@ -192,7 +192,7 @@ subroutine broadcast_int1D(dat, length, from_PE, blocking)
 end subroutine broadcast_int1D
 
 !> Communicate a real number from one PE to others
-subroutine broadcast_real0D(dat, from_PE,blocking)
+subroutine broadcast_real0D(dat, from_PE, blocking)
   real,                 intent(inout) :: dat       !< The data to communicate and destination
   integer,    optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
   logical,    optional, intent(in)    :: blocking  !< If true, barriers are added around the call
