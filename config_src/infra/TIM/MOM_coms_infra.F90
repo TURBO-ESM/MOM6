@@ -117,7 +117,7 @@ subroutine sync_PEs(pelist)
 end subroutine sync_PEs
 
 !> Communicate a 1-D array of character strings from one PE to others
-subroutine broadcast_char(dat, length, from_PE, blocking) 
+subroutine broadcast_char(dat, length, from_PE, blocking)
   character(len=*),  intent(inout) :: dat(:)    !< The data to communicate and destination
   integer,           intent(in)    :: length    !< The length of each string
   integer, optional, intent(in)    :: from_PE   !< The source PE, by default the root PE
