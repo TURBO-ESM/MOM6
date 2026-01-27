@@ -13,6 +13,7 @@ use MOM_document, only : doc_param, doc_module, doc_init, doc_end, doc_type
 use MOM_document, only : doc_openBlock, doc_closeBlock
 use MOM_string_functions, only : left_int, left_ints, slasher
 use MOM_string_functions, only : left_real, left_reals
+use array_mod, only : IntArray_t
 
 implicit none ; private
 
