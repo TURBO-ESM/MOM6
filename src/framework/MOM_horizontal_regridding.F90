@@ -21,6 +21,7 @@ use MOM_interp_infra,  only : external_field
 use MOM_time_manager,  only : time_type
 use MOM_io,            only : axis_info, get_axis_info, get_var_axes_info, MOM_read_data
 use MOM_io,            only : read_attribute, read_variable
+use array_mod,         only : RealArray_t
 
 implicit none ; private
 
@@ -325,9 +326,9 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam, recnum, G, tr
   real, dimension(:,:,:), allocatable  :: tr_in_full  !< A 3-d array for holding input data on the
                                                      !! model horizontal grid, with units that change
                                                      !! as the input data is interpreted [a] then [A ~> a]
-  real, dimension(:,:),  allocatable   :: tr_inp     !< Native horizontal grid data extended to the poles
-                                                     !! with units that change as the input data is
-                                                     !! interpreted [a] then [A ~> a]
+  type(RealArray_t) :: tr_inp_; real, dimension(:,:), pointer :: tr_inp     !< Native horizontal grid data extended to the poles
+                                                                            !! with units that change as the input data is
+                                                                            !! interpreted [a] then [A ~> a]
   real, dimension(:,:),  allocatable   :: mask_in    ! A 2-d mask for extended input grid [nondim]
 
   real :: PI_180  ! A conversion factor from degrees to radians [radians degree-1]
@@ -475,7 +476,7 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam, recnum, G, tr
     lon_out(:,:) = G%geoLonT(:,:)*PI_180
     lat_out(:,:) = G%geoLatT(:,:)*PI_180
     allocate(tr_in(id,jd), source=0.0)
-    allocate(tr_inp(id,jdp), source=0.0)
+    call tr_inp_%alloc(dims=[id,jdp],source=0.0);call tr_inp_%view(tr_inp) 
     allocate(mask_in(id,jdp), source=0.0)
   endif
 
@@ -540,7 +541,7 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam, recnum, G, tr
         endif
       endif
 
-      call broadcast(tr_inp, id*jdp, blocking=.true.)
+      call broadcast(tr_inp_, blocking=.true.)
 
       do j=1,jdp ; do i=1,id
         if (abs(tr_inp(i,j)-missing_val_in) > abs(roundoff*missing_val_in)) then
@@ -619,7 +620,7 @@ subroutine horiz_interp_and_extrap_tracer_record(filename, varnam, recnum, G, tr
 
   if (allocated(lat_inp)) deallocate(lat_inp)
   deallocate(tr_in)
-  if (allocated(tr_inp)) deallocate(tr_inp)
+  call tr_inp_%free()
   if (allocated(tr_in_full)) deallocate(tr_in_full)
 
 end subroutine horiz_interp_and_extrap_tracer_record
@@ -673,9 +674,9 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(field, Time, G, tr_z, mask_z, &
   real, dimension(:,:),  allocatable   :: tr_in      !< A 2-d array for holding input data on its
                                                      !! native horizontal grid, with units that change
                                                      !! as the input data is interpreted [a] then [A ~> a]
-  real, dimension(:,:),  allocatable   :: tr_inp     !< Native horizontal grid data extended to the poles
-                                                     !! with units that change as the input data is
-                                                     !! interpreted [a] then [A ~> a]
+  type(RealArray_t) :: tr_inp_; real, dimension(:,:), pointer :: tr_inp     !< Native horizontal grid data extended to the poles
+                                                                             !! with units that change as the input data is
+                                                                             !! interpreted [a] then [A ~> a]
   real, dimension(:,:,:), allocatable  :: data_in    !< A buffer for storing the full 3-d time-interpolated array
                                                      !! on the original grid [a]
   real, dimension(:,:),  allocatable   :: mask_in    !< A 2-d mask for extended input grid [nondim]
@@ -805,7 +806,7 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(field, Time, G, tr_z, mask_z, &
     lat_out(:,:) = G%geoLatT(:,:)*PI_180
     allocate(data_in(id,jd,kd), source=0.0)
     allocate(tr_in(id,jd), source=0.0)
-    allocate(tr_inp(id,jdp), source=0.0)
+    call tr_inp_%alloc(dims=[id,jdp],source=0.0);call tr_inp_%view(tr_inp)
     allocate(mask_in(id,jdp), source=0.0)
   else
     allocate(data_in(isd:ied,jsd:jed,kd))
@@ -855,7 +856,7 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(field, Time, G, tr_z, mask_z, &
         endif
       endif
 
-      call broadcast(tr_inp, id*jdp, blocking=.true.)
+      call broadcast(tr_inp_, blocking=.true.)
 
       mask_in(:,:) = 0.0
 
@@ -946,6 +947,7 @@ subroutine horiz_interp_and_extrap_tracer_fms_id(field, Time, G, tr_z, mask_z, &
       enddo
     enddo
   endif
+  call tr_inp_%free()
 
 end subroutine horiz_interp_and_extrap_tracer_fms_id
 

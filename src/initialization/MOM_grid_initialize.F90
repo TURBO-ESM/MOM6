@@ -15,6 +15,7 @@ use MOM_file_parser,   only : get_param, log_param, log_version, param_file_type
 use MOM_io,            only : MOM_read_data, slasher, file_exists, stdout
 use MOM_io,            only : CORNER, NORTH_FACE, EAST_FACE
 use MOM_unit_scaling,  only : unit_scale_type
+use array_mod,         only : RealArray_t
 
 implicit none ; private
 
@@ -177,7 +178,7 @@ subroutine set_grid_metrics_from_mosaic(G, param_file, US)
   real, dimension(2*G%isd-2:2*G%ied+1,2*G%jsd-3:2*G%jed+1) :: tmpV ! North face supergrid spacing [L ~> m]
   real, dimension(2*G%isd-3:2*G%ied+1,2*G%jsd-3:2*G%jed+1) :: tmpZ ! Corner latitudes [degrees_N] or
                                                                    ! longitudes [degrees_E]
-  real, dimension(:,:), allocatable :: tmpGlbl ! A global array of axis labels [degrees_N] or [km] or [m]
+  type(RealArray_t) :: tmpGlbl_; real, dimension(:,:), pointer :: tmpGlbl   ! A global array of axis labels [degrees_N] or [km] or [m]
   character(len=200) :: filename, grid_file, inputdir
   character(len=64)  :: mdl = "MOM_grid_init set_grid_metrics_from_mosaic"
   type(MOM_domain_type), pointer :: SGdom => NULL() ! Supergrid domain
@@ -313,11 +314,11 @@ subroutine set_grid_metrics_from_mosaic(G, param_file, US)
   ! broken convention for interpretting netCDF files).
   start(:) = 1 ; nread(:) = 1
   start(2) = 2 ; nread(1) = ni+1 ; nread(2) = 2
-  allocate( tmpGlbl(ni+1,2) )
+  call tmpGlbl_%alloc(dims=[ni+1,2]); call tmpGlbl_%view(tmpGlbl)
   if (is_root_PE()) &
     call MOM_read_data(filename, "x", tmpGlbl, start, nread, &
         no_domain=.TRUE., turns=G%HI%turns)
-  call broadcast(tmpGlbl, 2*(ni+1), root_PE())
+  call broadcast(tmpGlbl_, from_PE=root_PE())
 
   ! I don't know why the second axis is 1 or 2 here. -RWH
   do i=G%isg,G%ieg
@@ -328,15 +329,15 @@ subroutine set_grid_metrics_from_mosaic(G, param_file, US)
   do I=G%isg-1,G%ieg
     G%gridLonB(I) = tmpGlbl(2*(I-G%isg)+3,1)
   enddo
-  deallocate( tmpGlbl )
+  call tmpGlbl_%free()
 
-  allocate( tmpGlbl(1, nj+1) )
+  call tmpGlbl_%alloc(dims=[1,nj+1]); call tmpGlbl_%view(tmpGlbl)
   start(:) = 1 ; nread(:) = 1
   start(1) = int(ni/4)+1 ; nread(2) = nj+1
   if (is_root_PE()) &
     call MOM_read_data(filename, "y", tmpGlbl, start, nread, &
         no_domain=.TRUE., turns=G%HI%turns)
-  call broadcast(tmpGlbl, nj+1, root_PE())
+  call broadcast(tmpGlbl_, from_PE=root_PE())
 
   do j=G%jsg,G%jeg
     G%gridLatT(j) = tmpGlbl(1,2*(j-G%jsg)+2)
@@ -344,7 +345,7 @@ subroutine set_grid_metrics_from_mosaic(G, param_file, US)
   do J=G%jsg-1,G%jeg
     G%gridLatB(J) = tmpGlbl(1,2*(j-G%jsg)+3)
   enddo
-  deallocate( tmpGlbl )
+  call tmpGlbl_%free()
 
   call callTree_leave("set_grid_metrics_from_mosaic()")
 end subroutine set_grid_metrics_from_mosaic

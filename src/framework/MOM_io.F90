@@ -44,6 +44,7 @@ use MOM_io_infra, only : get_file_fields
 use MOM_io_infra, only : get_file_times
 use MOM_io_infra, only : open_file
 use MOM_io_infra, only : write_field
+use array_mod, only : IntArray_t
 
 implicit none ; private
 
@@ -809,7 +810,7 @@ subroutine get_var_sizes(filename, varname, ndims, sizes, match_case, caller, al
                                                    !! file is opened and closed within this routine.
 
   logical :: do_read, do_broadcast
-  integer, allocatable :: size_msg(:)  ! An array combining the number of dimensions and the sizes.
+  type (IntArray_t) :: size_msg_; integer, pointer :: size_msg(:)  ! An array combining the number of dimensions and the sizes.
   integer :: n, nval
 
   do_read = is_root_pe()
@@ -822,15 +823,15 @@ subroutine get_var_sizes(filename, varname, ndims, sizes, match_case, caller, al
     ! Distribute the sizes from the root PE.
     nval = size(sizes) + 1
 
-    allocate(size_msg(nval))
+    call size_msg_%alloc(dims=[nval]);call size_msg_%view(size_msg)
     size_msg(1) = ndims
     do n=2,nval ; size_msg(n) = sizes(n-1) ; enddo
 
-    call broadcast(size_msg, nval, blocking=.true.)
+    call broadcast(size_msg_, blocking=.true.)
 
     ndims = size_msg(1)
     do n=2,nval ;  sizes(n-1) = size_msg(n) ; enddo
-    deallocate(size_msg)
+    call size_msg_%free()
 
     if (present(dim_names) .and. (ndims > 0)) then
       nval = min(ndims, size(dim_names))

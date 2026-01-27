@@ -374,7 +374,7 @@ subroutine populate_param_data(iounit, filename, param_data)
   ! Local variables
   character(len=INPUT_STR_LENGTH) :: line
   character(len=1), allocatable, dimension(:) :: char_buf
-  integer, allocatable, dimension(:) :: line_len ! The trimmed length of each processed input line
+  type(IntArray_t) :: line_len_; integer, pointer :: line_len(:) ! The trimmed length of each processed input line
   integer :: n, num_lines, total_chars, ch, rsc, llen, int_buf(2)
   logical :: inMultiLineComment
 
@@ -414,13 +414,13 @@ subroutine populate_param_data(iounit, filename, param_data)
   endif  ! (is_root_pe())
 
   ! Broadcast the number of valid entries in parameter file
-  call broadcast(int_buf, 2, root_pe())
+  call broadcast(int_buf, 2, from_PE=root_pe())
   num_lines = int_buf(1)
   total_chars = int_buf(2)
 
   ! Set up the space for storing the actual lines.
   param_data%num_lines = num_lines
-  allocate (line_len(num_lines), source=0)
+  call line_len_%alloc(dims=[num_lines],source=0)
   allocate (char_buf(total_chars), source=" ")
 
   ! Read the actual lines.
@@ -461,8 +461,8 @@ subroutine populate_param_data(iounit, filename, param_data)
   endif  ! (is_root_pe())
 
   ! Broadcast the populated arrays line_len and char_buf
-  call broadcast(line_len, num_lines, root_pe())
-  call broadcast(char_buf(1:total_chars), 1, root_pe())
+  call broadcast(line_len_, from_PE=root_pe())
+  call broadcast(char_buf(1:total_chars), 1, from_PE=root_pe())
 
   ! Allocate space to hold contents of the parameter file, including the lines in param_data%fln
   allocate(param_data%fln(num_lines))
@@ -477,7 +477,7 @@ subroutine populate_param_data(iounit, filename, param_data)
     rsc = rsc + line_len(n)
   enddo
 
-  deallocate(char_buf) ; deallocate(line_len)
+  deallocate(char_buf) ; call line_len_%free()
 
 end subroutine populate_param_data
 
