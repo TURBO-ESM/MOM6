@@ -889,7 +889,7 @@ subroutine reset_face_lengths_list(G, param_file, US)
   len_lon = 360.0 ; if (G%len_lon > 0.0) len_lon = G%len_lon
   len_lat = 180.0 ; if (G%len_lat > 0.0) len_lat = G%len_lat
   ! Broadcast the number of lines and allocate the required space.
-  call broadcast(num_lines, root_PE())
+  call broadcast(num_lines, from_PE=root_PE())
   u_pt = 0 ; v_pt = 0
   if (num_lines > 0) then
     allocate(lines(num_lines))
@@ -924,7 +924,7 @@ subroutine reset_face_lengths_list(G, param_file, US)
     endif
 
     ! Broadcast the lines.
-    call broadcast(lines, 120, root_PE())
+    call broadcast(lines, 120, from_PE=root_PE())
 
     ! Populate the u_width, etc., data.
     do ln=1,num_lines

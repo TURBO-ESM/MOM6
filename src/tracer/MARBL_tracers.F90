@@ -364,11 +364,11 @@ subroutine configure_MARBL_tracers(GV, US, param_file, CS)
     ! i. Read next line on master, iostat value out
     !    (Exit loop if read is not successful; either read error or end of file)
     if (is_root_PE()) read(marbl_settings_in, "(A)", iostat=read_error) marbl_in_line(1)
-    call broadcast(read_error, root_PE())
+    call broadcast(read_error, from_PE=root_PE())
     if (read_error .ne. 0) exit
 
     ! ii. Broadcast line just read in on root PE to all tasks
-    call broadcast(marbl_in_line, 256, root_PE())
+    call broadcast(marbl_in_line, 256, from_PE=root_PE())
 
     ! iii. All tasks call put_setting (TODO: openMP blocks?)
     call MARBL_instances%put_setting(marbl_in_line(1))

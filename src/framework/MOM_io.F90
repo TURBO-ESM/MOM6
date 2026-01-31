@@ -810,7 +810,8 @@ subroutine get_var_sizes(filename, varname, ndims, sizes, match_case, caller, al
                                                    !! file is opened and closed within this routine.
 
   logical :: do_read, do_broadcast
-  type (IntArray_t) :: size_msg_; integer, pointer :: size_msg(:)  ! An array combining the number of dimensions and the sizes.
+  integer, pointer :: size_msg(:)  ! An array combining the number of dimensions and the sizes.
+  type (IntArray_t) :: size_msg_C  ! An IntArray conterin for size_msg 
   integer :: n, nval
 
   do_read = is_root_pe()
@@ -823,15 +824,15 @@ subroutine get_var_sizes(filename, varname, ndims, sizes, match_case, caller, al
     ! Distribute the sizes from the root PE.
     nval = size(sizes) + 1
 
-    call size_msg_%alloc(dims=[nval]);call size_msg_%view(size_msg)
+    call size_msg_C%alloc(size_msg,dims=[nval])
     size_msg(1) = ndims
     do n=2,nval ; size_msg(n) = sizes(n-1) ; enddo
 
-    call broadcast(size_msg_, blocking=.true.)
+    call broadcast(size_msg_C, blocking=.true.)
 
     ndims = size_msg(1)
     do n=2,nval ;  sizes(n-1) = size_msg(n) ; enddo
-    call size_msg_%free()
+    call size_msg_C%free()
 
     if (present(dim_names) .and. (ndims > 0)) then
       nval = min(ndims, size(dim_names))

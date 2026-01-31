@@ -13,10 +13,11 @@ module array_mod
      integer, allocatable :: ub(:)
    contains
      procedure :: allocReal, freeReal
-     procedure :: view1DReal, view2DReal, view3DReal, view4DReal
-     generic   :: view => view1DReal, view2DReal, view3DReal, view4DReal
+     procedure ::  viewReal1D,  viewReal2D,  viewReal3D,  viewReal4D
+     procedure :: allocReal1D, allocReal2D, allocReal3D, allocReal4D
+     generic   :: view => viewReal1D, viewReal2D, viewReal3D, viewReal4D
      generic   :: free => freeReal
-     generic   :: alloc => allocReal 
+     generic   :: alloc => allocReal1D, allocReal2D, allocReal3D, allocReal4D
      !procedure :: slice_3d
   end type RealArray_t
 
@@ -28,10 +29,11 @@ module array_mod
      integer, allocatable :: ub(:)
    contains
      procedure :: allocInt, freeInt
-     procedure :: view1DInt, view2DInt, view3DInt, view4DInt
-     generic   :: view  => view1DInt, view2DInt, view3DInt, view4DInt
+     procedure ::  viewInt1D,  viewInt2D,  viewInt3D,  viewInt4D
+     procedure :: allocInt1D, allocInt2D, allocInt3D, allocInt4D
+     generic   :: view  => viewInt1D, viewInt2D, viewInt3D, viewInt4D
      generic   :: free => freeInt
-     generic   :: alloc => allocInt 
+     generic   :: alloc => allocInt1D, allocInt2D, allocInt3D, allocInt4D
   end type intArray_t
 
 contains
@@ -40,7 +42,6 @@ subroutine allocReal(this, dims,lb,ub,source)
   class(RealArray_t), intent(inout) :: this
   integer, intent(in),optional :: dims(:), lb(:), ub(:)
   real(kind=dp), intent(in), optional :: source
-!  integer, intent(out), optional :: stat
 
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
@@ -86,12 +87,6 @@ subroutine allocInt(this, dims,lb,ub,source)
   integer, intent(in),optional :: dims(:), lb(:), ub(:)
   integer, optional :: source
   !integer, optional :: stat
-
-!  this%rank = size(dims)
-!  if (allocated(this%shape)) deallocate(this%shape)
-!  allocate(this%shape(this%rank))
-!  this%shape = dims
-!  allocate(this%data(product(dims)))
 
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
@@ -181,99 +176,204 @@ subroutine slice_3d(this, sub, i, j, k)
 
 end subroutine slice_3d
 
-subroutine view1DReal(this,a)
-   class(RealArray_t), intent(in) :: this
+subroutine allocReal1D(this, a, dims, lb, ub, source)
+   class(RealArray_t), intent(inout) :: this
    real(kind=dp), pointer :: a(:)
+   integer, intent(in),optional :: dims(:), lb(:), ub(:)
+   real(kind=dp), intent(in), optional :: source
 
-   integer :: n1
-
-   if (this%rank /= 2) stop "view1DReal: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view1DReal: shape not allocated"
-
+   ! allocate the memory
+   call this%allocReal(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1)) => this%data
 
-end subroutine view1DReal
+end subroutine allocReal1D
 
-subroutine view2DReal(this,a)
+subroutine viewReal1D(this, a)
    class(RealArray_t), intent(in) :: this
-   real(kind=dp), pointer :: a(:,:)
+   real(kind=dp), pointer :: a(:)
+   integer :: n1
 
-   if (this%rank /= 2) stop "view2DReal: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view2DReal: shape not allocated"
+   if (this%rank /= 1) stop "viewReal1D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewReal1D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1)) => this%data
+
+end subroutine viewReal1D
+
+subroutine allocReal2D(this, a, dims, lb, ub, source)
+   class(RealArray_t), intent(inout) :: this
+   real(kind=dp), pointer :: a(:,:)
+   integer, intent(in),optional :: dims(:), lb(:), ub(:)
+   real(kind=dp), intent(in), optional :: source
+
+   ! allocate the memory
+   call this%allocReal(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2)) => this%data
 
+end subroutine allocReal2D
 
-end subroutine view2DReal
-
-subroutine view3DReal(this,a)
+subroutine viewReal2D(this,a)
    class(RealArray_t), intent(in) :: this
+   real(kind=dp), pointer :: a(:,:)
+
+   if (this%rank /= 2) stop "viewReal2D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewReal2D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2)) => this%data
+
+end subroutine viewReal2D
+
+subroutine allocReal3D(this, a, dims, lb, ub, source)
+   class(RealArray_t), intent(inout) :: this
    real(kind=dp), pointer :: a(:,:,:)
+   integer, intent(in),optional :: dims(:), lb(:), ub(:)
+   real(kind=dp), intent(in), optional :: source
 
-   if (this%rank /= 3) stop "view3DReal: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view3DReal: shape not allocated"
-
+   ! allocate the memory
+   call this%allocReal(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3)) => this%data
 
+end subroutine allocReal3D
 
-end subroutine view3DReal
-
-subroutine view4DReal(this,a)
+subroutine viewReal3D(this,a)
    class(RealArray_t), intent(in) :: this
+   real(kind=dp), pointer :: a(:,:,:)
+
+   if (this%rank /= 3) stop "viewReal3D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewReal3D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3)) => this%data
+
+end subroutine viewReal3D
+
+subroutine allocReal4D(this, a, dims, lb, ub, source)
+   class(RealArray_t), intent(inout) :: this
    real(kind=dp), pointer :: a(:,:,:,:)
+   integer, intent(in),optional :: dims(:), lb(:), ub(:)
+   real(kind=dp), intent(in), optional :: source
 
-
-   if (this%rank /= 4) stop "view4DReal: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view4DReal: shape not allocated"
+   ! allocate the memory
+   call this%allocReal(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3),this%lb(4):this%ub(4)) => this%data
 
+end subroutine allocReal4D
 
-end subroutine view4DReal
+subroutine viewReal4D(this,a)
+   class(RealArray_t), intent(in) :: this
+   real(kind=dp), pointer :: a(:,:,:,:)
 
-subroutine view1DInt(this,a)
-   class(intArray_t), intent(in) :: this
+   if (this%rank /= 4) stop "viewReal4D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewReal4D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3),this%lb(4):this%ub(4)) => this%data
+
+end subroutine viewReal4D
+
+subroutine allocInt1D(this, a, dims, lb, ub, source)
+   class(intArray_t), intent(inout) :: this
    integer, pointer :: a(:)
+   integer, intent(in), optional :: dims(:), lb(:), ub(:)
+   integer, intent(in), optional :: source
 
-   if (this%rank /= 1) stop "view1DInt: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view1DInt: shape not allocated"
+   ! allocate the memory
+   call this%allocInt(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1)) => this%data
 
-end subroutine view1DInt
+end subroutine allocInt1D
 
-subroutine view2DInt(this,a)
+subroutine viewInt1D(this, a)
    class(intArray_t), intent(in) :: this
-   integer, pointer :: a(:,:)
+   integer, pointer :: a(:)
 
-   if (this%rank /= 2) stop "view2DInt: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view2DInt: shape not allocated"
+   if (this%rank /= 1) stop "viewInt1D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewInt1D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1)) => this%data
+
+end subroutine viewInt1D
+
+subroutine allocInt2D(this, a, dims, lb, ub, source)
+   class(intArray_t), intent(inout) :: this
+   integer, pointer :: a(:,:)
+   integer, intent(in), optional :: dims(:), lb(:), ub(:)
+   integer, intent(in), optional :: source
+
+   ! allocate the memory
+   call this%allocInt(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2)) => this%data
 
-end subroutine view2DInt
+end subroutine allocInt2D
 
-subroutine view3DInt(this,a)
+subroutine viewInt2D(this,a)
    class(intArray_t), intent(in) :: this
-   integer, pointer :: a(:,:,:)
+   integer, pointer :: a(:,:)
 
-   if (this%rank /= 3) stop "view3DInt: rank mismatch"
-   if (.not. allocated(this%shape)) stop "view3DInt: shape not allocated"
+   if (this%rank /= 2) stop "viewInt2D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewInt2D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2)) => this%data
+
+end subroutine viewInt2D
+
+subroutine allocInt3D(this, a, dims, lb, ub, source)
+   class(intArray_t), intent(inout) :: this
+   integer, pointer :: a(:,:,:)
+   integer, intent(in), optional :: dims(:), lb(:), ub(:)
+   integer, intent(in), optional :: source
+
+   ! allocate the memory
+   call this%allocInt(dims=dims, lb=lb, ub=ub, source=source)
 
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3)) => this%data
 
-end subroutine view3DInt
+end subroutine allocInt3D
 
-subroutine view4DInt(this,a)
+subroutine viewInt3D(this,a)
+   class(intArray_t), intent(in) :: this
+   integer, pointer :: a(:,:,:)
+
+   if (this%rank /= 3) stop "viewInt3D: rank mismatch"
+   if (.not. allocated(this%shape)) stop "viewInt3D: shape not allocated"
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3)) => this%data
+
+end subroutine viewInt3D
+
+subroutine allocInt4D(this, a, dims, lb, ub, source)
+   class(intArray_t), intent(inout) :: this
+   integer, pointer :: a(:,:,:,:)
+   integer, intent(in), optional :: dims(:), lb(:), ub(:)
+   integer, intent(in), optional :: source
+
+   ! allocate the memory
+   call this%allocInt(dims=dims, lb=lb, ub=ub, source=source)
+
+   ! Zero copy no allocation
+   a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3),this%lb(4):this%ub(4)) => this%data
+
+end subroutine allocInt4D
+
+subroutine viewInt4D(this,a)
    class(intArray_t), intent(in) :: this
    integer, pointer :: a(:,:,:,:)
 
@@ -283,6 +383,6 @@ subroutine view4DInt(this,a)
    ! Zero copy no allocation
    a(this%lb(1):this%ub(1),this%lb(2):this%ub(2),this%lb(3):this%ub(3),this%lb(4):this%ub(4)) => this%data
 
-end subroutine view4DInt
+end subroutine viewInt4D
 
 end module array_mod
