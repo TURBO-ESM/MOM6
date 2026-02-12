@@ -362,8 +362,6 @@ function field_chksum_real_3d(field, pelist, mask_val) result(chksum)
   type(c_ptr)                                :: field_loc, mask_loc
   integer(kind=int64)                        :: chksum    !< checksum of array
 
-  type(c_ptr) :: field_loc, mask_loc
-
   field_loc = c_loc(field(1,1,1))
   if(present(mask_val)) then
     mask_loc = c_loc(mask_val)
