@@ -4,7 +4,7 @@ module MOM_coms_infra
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use iso_fortran_env, only : int32, int64
-use iso_c_binding,   only : c_int, c_double, c_size_t, c_ptr, c_null_ptr, c_loc
+use iso_c_binding,   only : c_int64_t, c_double, c_size_t, c_ptr, c_null_ptr, c_loc
 
 use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_npes, mpp_set_root_pe
 use mpp_mod, only : mpp_set_current_pelist, mpp_get_current_pelist
