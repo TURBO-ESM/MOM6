@@ -302,8 +302,8 @@ function field_chksum_real_0d(field, pelist, mask_val) result(chksum)
   real,              target, intent(in) :: field      !< Input scalar
   integer, optional,         intent(in) :: pelist(:)  !< PE list of ranks to checksum
   real,    optional, target, intent(in) :: mask_val   !< FMS mask value
-  type(c_ptr) :: field_loc, mask_loc
-  integer(kind=int64) :: chksum               !< checksum of array
+  type(c_ptr)                           :: field_loc, mask_loc
+  integer(kind=int64)                   :: chksum     !< checksum of array
 
   field_loc = c_loc(field)
   if(present(mask_val)) then
@@ -311,7 +311,7 @@ function field_chksum_real_0d(field, pelist, mask_val) result(chksum)
   else
     mask_loc = c_null_ptr
   end if
-  
+
   chksum = tim_chksum(field_loc, int(1, kind=c_size_t), mask_loc)
 end function field_chksum_real_0d
 
@@ -321,9 +321,8 @@ function field_chksum_real_1d(field, pelist, mask_val) result(chksum)
   real, dimension(:), target, intent(in) :: field     !< Input array
   integer,  optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,     optional, target, intent(in) :: mask_val  !< FMS mask value
-  integer(kind=int64) :: chksum               !< checksum of array
-  
-  type(c_ptr) :: field_loc, mask_loc
+  type(c_ptr)                            :: field_loc, mask_loc
+  integer(kind=int64)                    :: chksum               !< checksum of array
 
   field_loc = c_loc(field(1))
   if(present(mask_val)) then
@@ -331,7 +330,7 @@ function field_chksum_real_1d(field, pelist, mask_val) result(chksum)
   else
     mask_loc = c_null_ptr
   end if
-  
+
   chksum = tim_chksum(field_loc, int(size(field), kind=c_size_t), mask_loc)
 end function field_chksum_real_1d
 
@@ -341,9 +340,8 @@ function field_chksum_real_2d(field, pelist, mask_val) result(chksum)
   real, dimension(:,:), target, intent(in) :: field     !< Unrotated input field
   integer,    optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,       optional, target, intent(in) :: mask_val  !< FMS mask value
-  integer(kind=int64) :: chksum                 !< checksum of array
-
-  type(c_ptr) :: field_loc, mask_loc
+  type(c_ptr)                              :: field_loc, mask_loc
+  integer(kind=int64)                      :: chksum    !< checksum of array
 
   field_loc = c_loc(field(1,1))
   if(present(mask_val)) then
@@ -359,9 +357,10 @@ end function field_chksum_real_2d
 !! provided, then the current active PE list is used.
 function field_chksum_real_3d(field, pelist, mask_val) result(chksum)
   real, dimension(:,:,:), target, intent(in) :: field     !< Unrotated input field
-  integer,      optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
+  integer,      optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,         optional, target, intent(in) :: mask_val  !< FMS mask value
-  integer(kind=int64) :: chksum               !< checksum of array
+  type(c_ptr)                                :: field_loc, mask_loc
+  integer(kind=int64)                        :: chksum    !< checksum of array
 
   type(c_ptr) :: field_loc, mask_loc
 
@@ -381,9 +380,8 @@ function field_chksum_real_4d(field, pelist, mask_val) result(chksum)
   real, dimension(:,:,:,:), target, intent(in) :: field     !< Unrotated input field
   integer,        optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,           optional, target, intent(in) :: mask_val  !< FMS mask value
-  integer(kind=int64) :: chksum               !< checksum of array
-
-  type(c_ptr) :: field_loc, mask_loc
+  type(c_ptr)                                  :: field_loc, mask_loc
+  integer(kind=int64)                          :: chksum    !< checksum of array
 
   field_loc = c_loc(field(1,1,1,1))
   if(present(mask_val)) then
