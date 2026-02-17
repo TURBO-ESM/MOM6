@@ -7,7 +7,7 @@ use iso_fortran_env, only : int32, int64
 
 use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_npes, mpp_set_root_pe
 use mpp_mod, only : mpp_set_current_pelist, mpp_get_current_pelist
-use mpp_mod, only : mpp_broadcast, mpp_sync, mpp_sync_self, mpp_chksum
+use mpp_mod, only : mpp_broadcast, mpp_sync, mpp_sync_self
 use mpp_mod, only : mpp_sum, mpp_max, mpp_min
 use memutils_mod, only : print_memuse_stats
 use fms_mod, only : fms_end, fms_init
