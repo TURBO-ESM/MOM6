@@ -13,13 +13,14 @@ use mpp_mod, only : mpp_sum, mpp_max, mpp_min
 use memutils_mod, only : print_memuse_stats
 use fms_mod, only : fms_end, fms_init
 use amrex_base_module, only: amrex_init, amrex_finalize
+use tim_coms_infra_f, only: tim_chksum
 
 implicit none ; private
 
 public :: PE_here, root_PE, num_PEs, set_rootPE, Set_PElist, Get_PElist, sync_PEs
 public :: broadcast, sum_across_PEs, min_across_PEs, max_across_PEs
 public :: any_across_PEs, all_across_PEs
-public :: field_chksum, tim_chksum, MOM_infra_init, MOM_infra_end
+public :: field_chksum, MOM_infra_init, MOM_infra_end
 
 ! This module provides interfaces to the non-domain-oriented communication
 ! subroutines.
@@ -39,16 +40,6 @@ interface field_chksum
   module procedure field_chksum_real_3d
   module procedure field_chksum_real_4d
 end interface field_chksum
-
-interface tim_chksum
-  function tim_chksum_r8_1d(field_ptr, field_size, mask_ptr) bind(c, name="tim_chksum_r8_1d")
-    import c_ptr, c_int64_t, c_size_t
-    integer(c_int64_t)                        :: tim_chksum_r8_1d
-    type(c_ptr),            value, intent(in) :: field_ptr
-    integer(c_size_t),      value, intent(in) :: field_size
-    type(c_ptr),            value, intent(in) :: mask_ptr
-  end function tim_chksum_r8_1d
-end interface
 
 !> Find the sum of field across PEs, and update PEs with the sums.
 interface sum_across_PEs
@@ -299,96 +290,56 @@ end subroutine broadcast_real3D
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
 !! provided, then the current active PE list is used.
 function field_chksum_real_0d(field, pelist, mask_val) result(chksum)
-  real,              target, intent(in) :: field      !< Input scalar
-  integer, optional,         intent(in) :: pelist(:)  !< PE list of ranks to checksum
-  real,    optional, target, intent(in) :: mask_val   !< FMS mask value
-  type(c_ptr)                           :: field_loc, mask_loc
-  integer(kind=int64)                   :: chksum     !< checksum of array
+  real,              intent(in) :: field      !< Input scalar
+  integer, optional, intent(in) :: pelist(:)  !< PE list of ranks to checksum
+  real,    optional, intent(in) :: mask_val   !< FMS mask value
+  integer(kind=int64) :: chksum               !< checksum of array
 
-  field_loc = c_loc(field)
-  if(present(mask_val)) then
-    mask_loc = c_loc(mask_val)
-  else
-    mask_loc = c_null_ptr
-  end if
-
-  chksum = tim_chksum(field_loc, int(1, kind=c_size_t), mask_loc)
+  chksum = tim_chksum(field, pelist, mask_val)
 end function field_chksum_real_0d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
 !! provided, then the current active PE list is used.
 function field_chksum_real_1d(field, pelist, mask_val) result(chksum)
-  real, dimension(:), target, intent(in) :: field     !< Input array
-  integer,  optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
-  real,     optional, target, intent(in) :: mask_val  !< FMS mask value
-  type(c_ptr)                            :: field_loc, mask_loc
-  integer(kind=int64)                    :: chksum               !< checksum of array
+  real, dimension(:), intent(in) :: field     !< Input array
+  integer,  optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
+  real,     optional, intent(in) :: mask_val  !< FMS mask value
+  integer(kind=int64) :: chksum               !< checksum of array
 
-  field_loc = c_loc(field(1))
-  if(present(mask_val)) then
-    mask_loc = c_loc(mask_val)
-  else
-    mask_loc = c_null_ptr
-  end if
-
-  chksum = tim_chksum(field_loc, int(size(field), kind=c_size_t), mask_loc)
+  chksum = tim_chksum(field, pelist, mask_val)
 end function field_chksum_real_1d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
 !! provided, then the current active PE list is used.
 function field_chksum_real_2d(field, pelist, mask_val) result(chksum)
-  real, dimension(:,:), target, intent(in) :: field     !< Unrotated input field
-  integer,    optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
-  real,       optional, target, intent(in) :: mask_val  !< FMS mask value
-  type(c_ptr)                              :: field_loc, mask_loc
-  integer(kind=int64)                      :: chksum    !< checksum of array
+  real, dimension(:,:), intent(in) :: field     !< Unrotated input field
+  integer,    optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
+  real,       optional, intent(in) :: mask_val  !< FMS mask value
+  integer(kind=int64) :: chksum                 !< checksum of array
 
-  field_loc = c_loc(field(1,1))
-  if(present(mask_val)) then
-    mask_loc = c_loc(mask_val)
-  else
-    mask_loc = c_null_ptr
-  end if
-
-  chksum = tim_chksum(field_loc, int(size(field), kind=c_size_t), mask_loc)
+  chksum = tim_chksum(field, pelist, mask_val)
 end function field_chksum_real_2d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
 !! provided, then the current active PE list is used.
 function field_chksum_real_3d(field, pelist, mask_val) result(chksum)
-  real, dimension(:,:,:), target, intent(in) :: field     !< Unrotated input field
-  integer,      optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
-  real,         optional, target, intent(in) :: mask_val  !< FMS mask value
-  type(c_ptr)                                :: field_loc, mask_loc
-  integer(kind=int64)                        :: chksum    !< checksum of array
+  real, dimension(:,:,:), intent(in) :: field     !< Unrotated input field
+  integer,      optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
+  real,         optional, intent(in) :: mask_val  !< FMS mask value
+  integer(kind=int64) :: chksum               !< checksum of array
 
-  field_loc = c_loc(field(1,1,1))
-  if(present(mask_val)) then
-    mask_loc = c_loc(mask_val)
-  else
-    mask_loc = c_null_ptr
-  end if
-
-  chksum = tim_chksum(field_loc, int(size(field), kind=c_size_t), mask_loc)
+  chksum = tim_chksum(field, pelist, mask_val)
 end function field_chksum_real_3d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
 !! provided, then the current active PE list is used.
 function field_chksum_real_4d(field, pelist, mask_val) result(chksum)
-  real, dimension(:,:,:,:), target, intent(in) :: field     !< Unrotated input field
-  integer,        optional,         intent(in) :: pelist(:) !< PE list of ranks to checksum
-  real,           optional, target, intent(in) :: mask_val  !< FMS mask value
-  type(c_ptr)                                  :: field_loc, mask_loc
-  integer(kind=int64)                          :: chksum    !< checksum of array
+  real, dimension(:,:,:,:), intent(in) :: field     !< Unrotated input field
+  integer,        optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
+  real,           optional, intent(in) :: mask_val  !< FMS mask value
+  integer(kind=int64) :: chksum               !< checksum of array
 
-  field_loc = c_loc(field(1,1,1,1))
-  if(present(mask_val)) then
-    mask_loc = c_loc(mask_val)
-  else
-    mask_loc = c_null_ptr
-  end if
-
-  chksum = tim_chksum(field_loc, int(size(field), kind=c_size_t), mask_loc)
+  chksum = tim_chksum(field, pelist, mask_val)
 end function field_chksum_real_4d
 
 ! sum_across_PEs wrappers
