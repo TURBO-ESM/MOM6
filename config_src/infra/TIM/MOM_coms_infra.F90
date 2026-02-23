@@ -12,7 +12,7 @@ use mpp_mod, only : mpp_sum, mpp_max, mpp_min
 use memutils_mod, only : print_memuse_stats
 use fms_mod, only : fms_end, fms_init
 use amrex_base_module, only: amrex_init, amrex_finalize
-use tim_coms_infra_f, only: tim_chksum
+use tim_coms_infra_interface, only: tim_chksum
 
 use array_mod, only : IntArray_t, RealArray_t
 
