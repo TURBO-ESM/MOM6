@@ -8,7 +8,7 @@ module array_mod
 
 
   type :: RealArray_t
-     real(kind=real64), pointer :: data(:) => null() !< Pointer to storage for array container
+     real(kind=real64), pointer, contiguous :: data(:) => null() !< Storage ptr for array container
      integer :: rank = 0                             !< Rank of array
      integer, allocatable :: shape(:)                !< Shape of array
      integer, allocatable :: lb(:)                   !< Lower bounds
@@ -27,7 +27,7 @@ module array_mod
   end type RealArray_t
 
   type :: IntArray_t
-     integer, pointer :: data(:) => null() !< Pointer to storage for array container
+     integer, pointer, contiguous :: data(:) => null() !< Storage ptr for array container
      integer :: rank = 0                   !< Rank of array
      integer, allocatable :: shape(:)      !< Shape of array
      integer, allocatable :: lb(:)         !< Lower bounds
