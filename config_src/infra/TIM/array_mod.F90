@@ -70,7 +70,7 @@ subroutine allocReal(this, dims,lb,ub,source)
     this%lb(:)    = lb(:)
     this%ub(:)    = ub(:)
     this%shape(:) = ub(:)-lb(:)+1
-    allocate(this%data(product(this%shape)))
+    call amrex_allocate(this%data,1,product(this%shape))
     if(present(source)) this%data(:)=source
     !stat=0
   elseif(present(dims) .and. .not. present(ub) .and. .not. present(lb)) then
@@ -112,7 +112,7 @@ subroutine allocInt(this, dims,lb,ub,source)
     this%lb(:)    = lb(:)
     this%ub(:)    = ub(:)
     this%shape(:) = ub(:)-lb(:)+1
-    allocate(this%data(product(this%shape)))
+    call amrex_allocate(this%data,1,product(this%shape))
     if(present(source)) this%data(:)=source
   elseif(present(dims) .and. .not. present(ub) .and. .not. present(lb)) then
     this%rank     = size(dims)
@@ -133,7 +133,7 @@ end subroutine allocInt
 subroutine freeReal(this)
   class(RealArray_t), intent(inout) :: this  !< The array container to deallocate
 
-  if (associated(this%data)) deallocate(this%data)
+  if (associated(this%data)) call amrex_deallocate(this%data)
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
   if (allocated(this%ub))    deallocate(this%ub)
@@ -143,7 +143,7 @@ end subroutine freeReal
 subroutine freeInt(this)
   class(IntArray_t), intent(inout) :: this  !< The array container to deallocate
 
-  if (associated(this%data))  deallocate(this%data)
+  if (associated(this%data))  call amrex_deallocate(this%data)
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
   if (allocated(this%ub))    deallocate(this%ub)
