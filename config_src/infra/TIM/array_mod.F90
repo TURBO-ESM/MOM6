@@ -1,6 +1,7 @@
 module array_mod
   use, intrinsic :: iso_fortran_env, only : real64
   use MOM_error_infra, only : MOM_err, FATAL
+  use amrex_mempool_module, only : amrex_allocate, amrex_deallocate
   implicit none
   private
   public :: RealArray_t, IntArray_t
@@ -53,7 +54,7 @@ subroutine allocReal(this, dims,lb,ub,source)
   integer, intent(in),optional :: ub(:)             !< Upper bounds
   real(kind=real64), intent(in), optional :: source !< Initial value for all elements
 
-  if (associated(this%data)) deallocate(this%data)
+  if (associated(this%data)) call amrex_deallocate(this%data)
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
   if (allocated(this%ub))    deallocate(this%ub)
@@ -80,7 +81,7 @@ subroutine allocReal(this, dims,lb,ub,source)
     this%lb(:)    = 1
     this%ub(:)    = dims(:)
     this%shape(:) = dims(:)
-    allocate(this%data(product(dims)))
+    call amrex_allocate(this%data,1,product(dims))
     if(present(source)) this%data(:)=source
   else
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
@@ -95,7 +96,7 @@ subroutine allocInt(this, dims,lb,ub,source)
   integer, intent(in),optional :: ub(:)    !< Upper bounds
   integer, optional :: source              !< Initial value for all elements
 
-  if (associated(this%data)) deallocate(this%data)
+  if (associated(this%data)) call amrex_deallocate(this%data)
   if (allocated(this%shape)) deallocate(this%shape)
   if (allocated(this%lb))    deallocate(this%lb)
   if (allocated(this%ub))    deallocate(this%ub)
@@ -121,7 +122,7 @@ subroutine allocInt(this, dims,lb,ub,source)
     this%lb(:)    = 1
     this%ub(:)    = dims(:)
     this%shape(:) = dims(:)
-    allocate(this%data(product(dims)))
+    call amrex_allocate(this%data,1,product(dims))
     if(present(source)) this%data(:)=source
   else
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
