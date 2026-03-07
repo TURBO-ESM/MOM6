@@ -17,6 +17,12 @@ function lowercase(input_string)
 !   This function returns a string in which all uppercase letters have been
 ! replaced by their lowercase counterparts.  It is loosely based on the
 ! lowercase function in mpp_util.F90.
+!
+!   NOTE: This implementation is intentionally duplicated from
+!   src/framework/MOM_string_functions.F90 to avoid an infra->framework
+!   dependency. Any functional changes to `lowercase` here or in
+!   src/framework/MOM_string_functions.F90 must be mirrored in the other
+!   location, or the two should be refactored into a shared source/include.
   integer, parameter :: co=iachar('a')-iachar('A') ! case offset
   integer :: k
 
