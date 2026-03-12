@@ -70,9 +70,6 @@ subroutine allocReal(this, dims,lb,ub,source)
     this%lb(:)    = lb(:)
     this%ub(:)    = ub(:)
     this%shape(:) = ub(:)-lb(:)+1
-    call amrex_allocate(this%data,1,product(this%shape))
-    if(present(source)) this%data(:)=source
-    !stat=0
   elseif(present(dims) .and. .not. present(ub) .and. .not. present(lb)) then
     this%rank     = size(dims)
     ! Allocate shape and bound information
@@ -81,11 +78,18 @@ subroutine allocReal(this, dims,lb,ub,source)
     this%lb(:)    = 1
     this%ub(:)    = dims(:)
     this%shape(:) = dims(:)
-    call amrex_allocate(this%data,1,product(dims))
-    if(present(source)) this%data(:)=source
   else
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
   endif
+
+  ! allocate the memory 
+  call amrex_allocate(this%data,1,product(this%shape))
+
+  ! initialize the variable
+  ! Note this this is a CPU only assignment.
+  ! It will not work correctly on the GPU
+  if(present(source)) this%data(:) = source
+
 
 end subroutine allocReal
 
@@ -95,6 +99,9 @@ subroutine allocInt(this, dims,lb,ub,source)
   integer, intent(in),optional :: lb(:)    !< Lower bounds
   integer, intent(in),optional :: ub(:)    !< Upper bounds
   integer, optional :: source              !< Initial value for all elements
+
+  integer :: len                           !< the length of the array to allocate
+  integer :: i
 
   if (associated(this%data)) call amrex_deallocate(this%data)
   if (allocated(this%shape)) deallocate(this%shape)
@@ -112,8 +119,6 @@ subroutine allocInt(this, dims,lb,ub,source)
     this%lb(:)    = lb(:)
     this%ub(:)    = ub(:)
     this%shape(:) = ub(:)-lb(:)+1
-    call amrex_allocate(this%data,1,product(this%shape))
-    if(present(source)) this%data(:)=source
   elseif(present(dims) .and. .not. present(ub) .and. .not. present(lb)) then
     this%rank     = size(dims)
     ! Allocate shape and bound information
@@ -122,11 +127,17 @@ subroutine allocInt(this, dims,lb,ub,source)
     this%lb(:)    = 1
     this%ub(:)    = dims(:)
     this%shape(:) = dims(:)
-    call amrex_allocate(this%data,1,product(dims))
-    if(present(source)) this%data(:)=source
   else
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
   endif
+
+  ! allocate the memory 
+  call amrex_allocate(this%data,1,product(this%shape))
+
+  ! initialize the variable
+  ! Note this this is a CPU only assignment.
+  ! It will not work correctly on the GPU
+  if(present(source)) this%data(:)=source
 
 end subroutine allocInt
 
