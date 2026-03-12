@@ -82,7 +82,7 @@ subroutine allocReal(this, dims,lb,ub,source)
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
   endif
 
-  ! allocate the memory 
+  ! allocate the memory
   call amrex_allocate(this%data,1,product(this%shape))
 
   ! initialize the variable
@@ -131,7 +131,7 @@ subroutine allocInt(this, dims,lb,ub,source)
     call MOM_err(FATAL, "allocReal: Must specify either ub and lb or dims")
   endif
 
-  ! allocate the memory 
+  ! allocate the memory
   call amrex_allocate(this%data,1,product(this%shape))
 
   ! initialize the variable
