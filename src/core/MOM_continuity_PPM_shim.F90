@@ -55,7 +55,7 @@ module MOM_continuity_PPM_shim
 contains
 
   !----------------------------------------
-  ! Drop-in replacement for PP_limit_pos
+  ! Drop-in replacement for PPM_limit_pos
   !----------------------------------------
   subroutine PPM_limit_pos_shim(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
     implicit none
@@ -80,13 +80,13 @@ contains
           iis, iie, jis, jie, imin, imax, jmin, jmax)
     else
        call ppm_limit_pos(h_in, h_L, h_R, h_min,  &
-          G, iis, iie, jie, jie) 
+          G, iis, iie, jis, jie) 
     endif
 
 end subroutine PPM_limit_pos_shim
 
   !----------------------------------------
-  ! Drop-in replacement for PP_limit_pos
+  ! Drop-in replacement for PPM_limit_cw84
   !----------------------------------------
   subroutine PPM_limit_cw84_shim(h_in, h_L, h_R, G, iis, iie, jis, jie)
     implicit none
@@ -110,7 +110,7 @@ end subroutine PPM_limit_pos_shim
           iis, iie, jis, jie, imin, imax, jmin, jmax)
     else
        call ppm_limit_cw84(h_in, h_L, h_R, &
-          G, iis, iie, jie, jie) 
+          G, iis, iie, jis, jie) 
     endif
 
 end subroutine PPM_limit_cw84_shim
