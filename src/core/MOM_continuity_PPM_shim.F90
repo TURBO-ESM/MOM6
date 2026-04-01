@@ -10,7 +10,7 @@ module MOM_continuity_PPM_shim
   ! C interface (bridge to C++)
   !----------------------------------------
   interface
-    subroutine ppm_limit_pos_f(h_in, h_L, h_R, h_min,  &
+    subroutine ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
                                lo_i, hi_i, lo_j, hi_j, &
 			       i_min, i_max, j_min, j_max) bind(C)
       use iso_c_binding
@@ -27,10 +27,10 @@ module MOM_continuity_PPM_shim
       integer(c_int), intent(in) :: i_min, i_max
       integer(c_int), intent(in) :: j_min, j_max
 	
-    end subroutine ppm_limit_pos_f
+    end subroutine ppm_limit_pos_c
   end interface
   interface
-    subroutine ppm_limit_cw84_f(h_in, h_L, h_R,  &
+    subroutine ppm_limit_cw84_c(h_in, h_L, h_R,  &
                                lo_i, hi_i, lo_j, hi_j, &
 			       i_min, i_max, j_min, j_max) bind(C)
       use iso_c_binding
@@ -46,7 +46,7 @@ module MOM_continuity_PPM_shim
       integer(c_int), intent(in) :: i_min, i_max
       integer(c_int), intent(in) :: j_min, j_max
 	
-    end subroutine ppm_limit_cw84_f
+    end subroutine ppm_limit_cw84_c
   end interface
 
   public :: PPM_limit_pos_shim
@@ -76,7 +76,7 @@ contains
        imax = UBOUND(h_in,dim=1)
        jmin = LBOUND(h_in,dim=2)
        jmax = UBOUND(h_in,dim=2)
-       call ppm_limit_pos_f(h_in, h_L, h_R, h_min,  &
+       call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
           iis, iie, jis, jie, imin, imax, jmin, jmax)
     else
        call ppm_limit_pos(h_in, h_L, h_R, h_min,  &
@@ -106,7 +106,7 @@ end subroutine PPM_limit_pos_shim
        imax = UBOUND(h_in,dim=1)
        jmin = LBOUND(h_in,dim=2)
        jmax = UBOUND(h_in,dim=2)
-       call ppm_limit_cw84_f(h_in, h_L, h_R,  &
+       call ppm_limit_cw84_c(h_in, h_L, h_R,  &
           iis, iie, jis, jie, imin, imax, jmin, jmax)
     else
        call ppm_limit_cw84(h_in, h_L, h_R, &
