@@ -1,18 +1,20 @@
 module MOM_continuity_PPM_shim
   use iso_c_binding, only : c_double, c_int
   use MOM_grid, only : ocean_grid_type
+  use TIM_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
+          TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN, get_mode_env
   implicit none ; private
 
 #include <MOM_memory.h>
 
-  logical,parameter ::  use_AMREX = .TRUE. 
+  logical, parameter :: use_AMREX = .TRUE. 
   !----------------------------------------
   ! C interface (bridge to C++)
   !----------------------------------------
   interface
     subroutine ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
                                lo_i, hi_i, lo_j, hi_j, &
-			       i_min, i_max, j_min, j_max) bind(C)
+			       i_min, i_max, j_min, j_max, mode) bind(C)
       use iso_c_binding
       implicit none
 
@@ -26,6 +28,7 @@ module MOM_continuity_PPM_shim
       integer(c_int), intent(in) :: lo_j, hi_j
       integer(c_int), intent(in) :: i_min, i_max
       integer(c_int), intent(in) :: j_min, j_max
+      integer(c_int), intent(in) :: mode
 	
     end subroutine ppm_limit_pos_c
   end interface
@@ -39,7 +42,6 @@ module MOM_continuity_PPM_shim
       real(c_double), intent(in)    :: h_in(*)
       real(c_double), intent(inout) :: h_L(*)
       real(c_double), intent(inout) :: h_R(*)
-
 
       integer(c_int), intent(in) :: lo_i, hi_i
       integer(c_int), intent(in) :: lo_j, hi_j
@@ -69,23 +71,48 @@ contains
 
     ! local variables
     integer :: imin, imax, jmin, jmax
+    integer :: ppm_limit_pos_mode
+
+    imin = LBOUND(h_in,dim=1)
+    imax = UBOUND(h_in,dim=1)
+    jmin = LBOUND(h_in,dim=2)
+    jmax = UBOUND(h_in,dim=2)
+
+    ppm_limit_pos_mode = get_mode_env("PPM_LIMIT_POS_MODE",default=TIMH_runFORTRAN)
 
     ! Call C++ bridge
-    if(use_AMREX) then 
-       imin = LBOUND(h_in,dim=1)
-       imax = UBOUND(h_in,dim=1)
-       jmin = LBOUND(h_in,dim=2)
-       jmax = UBOUND(h_in,dim=2)
-       call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
-          iis, iie, jis, jie, imin, imax, jmin, jmax)
-    else
-       call ppm_limit_pos(h_in, h_L, h_R, h_min,  &
-          G, iis, iie, jis, jie) 
-    endif
+    select case (ppm_limit_pos_mode)
+       case (TIMH_runFORTRAN)
+
+          ! Run Fortran code
+          call ppm_limit_pos(h_in, h_L, h_R, h_min,  &
+             G, iis, iie, jis, jie) 
+
+       case (TIMH_capture)
+
+          ! capture the input state
+           call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
+              iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_INPUT)
+
+          ! Run Fortran truth 
+          call ppm_limit_pos(h_in, h_L, h_R, h_min,  &
+             G, iis, iie, jis, jie) 
+
+          ! capture the output state
+           call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
+              iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_OUTPUT)
+
+       case (TIMH_runAMREX)
+
+          call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
+               iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_RUN)
+
+    end select
 
 end subroutine PPM_limit_pos_shim
 
   !----------------------------------------
+
   ! Drop-in replacement for PPM_limit_cw84
   !----------------------------------------
   subroutine PPM_limit_cw84_shim(h_in, h_L, h_R, G, iis, iie, jis, jie)
