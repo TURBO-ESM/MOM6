@@ -35,7 +35,7 @@ module MOM_continuity_PPM_shim
   interface
     subroutine ppm_limit_cw84_c(h_in, h_L, h_R,  &
                                lo_i, hi_i, lo_j, hi_j, &
-			       i_min, i_max, j_min, j_max) bind(C)
+			       i_min, i_max, j_min, j_max, mode) bind(C)
       use iso_c_binding
       implicit none
 
@@ -47,6 +47,7 @@ module MOM_continuity_PPM_shim
       integer(c_int), intent(in) :: lo_j, hi_j
       integer(c_int), intent(in) :: i_min, i_max
       integer(c_int), intent(in) :: j_min, j_max
+      integer(c_int), intent(in) :: mode
 	
     end subroutine ppm_limit_cw84_c
   end interface
@@ -90,7 +91,7 @@ contains
 
        case (TIMH_capture)
 
-          ! capture the input state
+           ! capture the input state
            call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
               iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_INPUT)
 
@@ -104,6 +105,7 @@ contains
 
        case (TIMH_runAMREX)
 
+          ! Run AMReX code
           call ppm_limit_pos_c(h_in, h_L, h_R, h_min,  &
                iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_RUN)
 
@@ -126,19 +128,43 @@ end subroutine PPM_limit_pos_shim
 
     ! local variables
     integer :: imin, imax, jmin, jmax
+    integer :: mode
 
+    imin = LBOUND(h_in,dim=1)
+    imax = UBOUND(h_in,dim=1)
+    jmin = LBOUND(h_in,dim=2)
+    jmax = UBOUND(h_in,dim=2)
+
+    mode = get_mode_env("PPM_LIMIT_CW84_MODE", default=TIMH_runFORTRAN)
     ! Call C++ bridge
-    if(use_AMREX) then 
-       imin = LBOUND(h_in,dim=1)
-       imax = UBOUND(h_in,dim=1)
-       jmin = LBOUND(h_in,dim=2)
-       jmax = UBOUND(h_in,dim=2)
-       call ppm_limit_cw84_c(h_in, h_L, h_R,  &
-          iis, iie, jis, jie, imin, imax, jmin, jmax)
-    else
-       call ppm_limit_cw84(h_in, h_L, h_R, &
-          G, iis, iie, jis, jie) 
-    endif
+    select case (mode)
+       case (TIMH_runFORTRAN)
+
+          ! Run Fortran code
+          call ppm_limit_cw84(h_in, h_L, h_R, &
+              G, iis, iie, jis, jie) 
+
+       case (TIMH_capture)
+
+          ! capture the input state
+          call ppm_limit_cw84_c(h_in, h_L, h_R,  &
+             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_INPUT)
+
+          ! Run Fortran truth
+          call ppm_limit_cw84(h_in, h_L, h_R, &
+              G, iis, iie, jis, jie) 
+
+          ! capture the input state
+          call ppm_limit_cw84_c(h_in, h_L, h_R,  &
+             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_OUTPUT)
+
+       case (TIMH_runAMREX)
+
+          ! Run AMReX code
+          call ppm_limit_cw84_c(h_in, h_L, h_R,  &
+             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_RUN)
+
+     end select
 
 end subroutine PPM_limit_cw84_shim
 
