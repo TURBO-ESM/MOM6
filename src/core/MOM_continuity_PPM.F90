@@ -1,4 +1,4 @@
-#<define _FMS
+#define _FMS
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -34,9 +34,9 @@ implicit none ; private
       implicit none
 
       real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction 
+      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction
                                                !! [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction 
+      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction
                                                !! [H ~> m or kg m-2].
       real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
                                                !! by a concave parabolic fit [H ~> m or kg m-2]
@@ -61,9 +61,9 @@ implicit none ; private
       implicit none
 
       real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction 
+      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction
                                                !! [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction 
+      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction
                                                !! [H ~> m or kg m-2].
       integer(c_int), intent(in) :: lo_i   !< Start of i index range.
       integer(c_int), intent(in) :: hi_i   !< End of i index range.
