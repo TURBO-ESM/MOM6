@@ -1,0 +1,8 @@
+
+
+#define _TIMH_RUNAMREX 0
+#define _TIMH_CAPTURE 1
+#define _TIMH_RUNFORTRAN 2
+#define _TIMH_CAPTURE_INPUT 101
+#define _TIMH_CAPTURE_OUTPUT 102
+#define _TIMH_RUN 103
