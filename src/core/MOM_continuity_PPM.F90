@@ -1,4 +1,4 @@
-#define _FMS
+#<define _FMS
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -26,6 +26,7 @@ implicit none ; private
   ! C interface (bridge to C++)
   !----------------------------------------
   interface
+    !> Bridge for the PPM_limit_pos subroutine
     subroutine ppm_limit_pos_bridge(h_in, h_L, h_R, h_min,  &
                                lo_i, hi_i, lo_j, hi_j, &
                                i_min, i_max, j_min, j_max, mode) bind(C)
@@ -33,32 +34,12 @@ implicit none ; private
       implicit none
 
       real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction [H ~> m or kg m-2].
-      real(c_double), intent(in) :: h_min      !< The minimum thickness
-                                        !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
-      integer(c_int), intent(in) :: lo_i   !< Start of i index range.
-      integer(c_int), intent(in) :: hi_i   !< End of i index range.
-      integer(c_int), intent(in) :: lo_j   !< Start of j index range.
-      integer(c_int), intent(in) :: hi_j   !< End of j index range.
-      integer(c_int), intent(in) :: i_min  !< lower bound for the i dimension
-      integer(c_int), intent(in) :: i_max  !< upper bound for the i dimension
-      integer(c_int), intent(in) :: j_min  !< lower bound for the j dimension
-      integer(c_int), intent(in) :: j_max  !< upper bound for the j dimension
-      integer(c_int), intent(in) :: mode   !< Execution mode of the bridge 
-
-    end subroutine ppm_limit_pos_bridge
-  end interface
-  interface
-    subroutine ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
-                               lo_i, hi_i, lo_j, hi_j, &
-                               i_min, i_max, j_min, j_max, mode) bind(C)
-      use iso_c_binding
-      implicit none
-
-      real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction [H ~> m or kg m-2].
+      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction 
+                                               !! [H ~> m or kg m-2].
+      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction 
+                                               !! [H ~> m or kg m-2].
+      real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
+                                               !! by a concave parabolic fit [H ~> m or kg m-2]
       integer(c_int), intent(in) :: lo_i   !< Start of i index range.
       integer(c_int), intent(in) :: hi_i   !< End of i index range.
       integer(c_int), intent(in) :: lo_j   !< Start of j index range.
@@ -68,6 +49,31 @@ implicit none ; private
       integer(c_int), intent(in) :: j_min  !< lower bound for the j dimension
       integer(c_int), intent(in) :: j_max  !< upper bound for the j dimension
       integer(c_int), intent(in) :: mode   !< Execution mode of the bridge
+
+    end subroutine ppm_limit_pos_bridge
+  end interface
+  interface
+    !> Bridge for the PPM_limit_pos subroutine
+    subroutine ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
+                               lo_i, hi_i, lo_j, hi_j, &
+                               i_min, i_max, j_min, j_max, mode) bind(C)
+      use iso_c_binding
+      implicit none
+
+      real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
+      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction 
+                                               !! [H ~> m or kg m-2].
+      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction 
+                                               !! [H ~> m or kg m-2].
+      integer(c_int), intent(in) :: lo_i   !< Start of i index range.
+      integer(c_int), intent(in) :: hi_i   !< End of i index range.
+      integer(c_int), intent(in) :: lo_j   !< Start of j index range.
+      integer(c_int), intent(in) :: hi_j   !< End of j index range.
+      integer(c_int), intent(in) :: i_min  !< lower bound for the i dimension
+      integer(c_int), intent(in) :: i_max  !< upper bound for the i dimension
+      integer(c_int), intent(in) :: j_min  !< lower bound for the j dimension
+      integer(c_int), intent(in) :: j_max  !< upper bound for the j dimension
+      integer(c_int), intent(in) :: mode   !< Execution mode of the bridg
 
     end subroutine ppm_limit_cw84_bridge
   end interface
@@ -2856,17 +2862,15 @@ function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
 
 end function set_continuity_loop_bounds
 
-!----------------------------------------
-! Shim for PPM_limit_pos
-!----------------------------------------
+!< Shim for PPM_limit_pos
 subroutine PPM_limit_pos(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
     implicit none
 
     type(ocean_grid_type), intent(in) :: G
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the reconstruction [H ~> m or kg m-2].
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the reconstruction [H ~> m or kg m-2].
-    real(c_double), intent(in)    :: h_min !< The minimum thickness
+    real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the reconstruction [H ~> m or kg m-2].
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the reconstruction [H ~> m or kg m-2].
+    real, intent(in)    :: h_min !< The minimum thickness
                                         !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
     integer, intent(in) :: iis !< Start of i index range.
     integer, intent(in) :: iie !< End of i index range.
@@ -2916,16 +2920,14 @@ subroutine PPM_limit_pos(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
 
 end subroutine PPM_limit_pos
 
-!----------------------------------------
-! Shim for PPM_limit_cw84
-!----------------------------------------
+!< Shim for PPM_limit_cw84
 subroutine PPM_limit_cw84(h_in, h_L, h_R, G, iis, iie, jis, jie)
     implicit none
 
     type(ocean_grid_type), intent(in) :: G
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the reconstruction [H ~> m or kg m-2].
-    real(c_double), dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the reconstruction [H ~> m or kg m-2].
+    real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the reconstruction [H ~> m or kg m-2].
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the reconstruction [H ~> m or kg m-2].
     integer, intent(in) :: iis !< Start of i index range.
     integer, intent(in) :: iie !< End of i index range.
     integer, intent(in) :: jis !< Start of j index range.
