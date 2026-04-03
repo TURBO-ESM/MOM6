@@ -443,9 +443,12 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
   if (use_temperature .and. use_OBC) &
     call fill_temp_salt_segments(G, GV, US, OBC, tv)
 
-  call get_param(PF, mdl, "INIT_TS_PERTURB", init_ts_perturb, &
-          "If > 0, the amplitude of random perturbations to add to the initial temperature and salinity fields.", &
-          default=0.0, units="degC", scale=US%degC_to_C)
+  init_ts_perturb = 0.0
+  if (use_temperature) then
+    call get_param(PF, mdl, "INIT_TS_PERTURB", init_ts_perturb, &
+            "If > 0, the amplitude of random perturbations to add to the initial temperature and salinity fields.", &
+            default=0.0, units="degC", scale=US%degC_to_C)
+  endif
 
   ! Apply random perturbations to the initial temperature if requested.
   if (init_ts_perturb > 0.0) then
