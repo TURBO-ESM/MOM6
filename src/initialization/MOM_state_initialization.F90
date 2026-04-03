@@ -189,7 +189,7 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
   ! Local variables for random number generator initialization for perturbations to initial conditions
   integer :: rndm_seed_sz, ig, jg, ni_global
   integer, dimension(:), allocatable :: rndm_seed
-  real :: init_ts_perturb
+  real :: init_t_perturb
   real :: pertval
 
 
@@ -443,15 +443,15 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
   if (use_temperature .and. use_OBC) &
     call fill_temp_salt_segments(G, GV, US, OBC, tv)
 
-  init_ts_perturb = 0.0
+  init_t_perturb = 0.0
   if (use_temperature) then
-    call get_param(PF, mdl, "INIT_TS_PERTURB", init_ts_perturb, &
-            "If > 0, the amplitude of random perturbations to add to the initial temperature and salinity fields.", &
+    call get_param(PF, mdl, "INIT_T_PERTURB", init_t_perturb, &
+            "If > 0, the amplitude of random perturbations to add to the initial temperature field.", &
             default=0.0, units="degC", scale=US%degC_to_C)
   endif
 
   ! Apply random perturbations to the initial temperature if requested.
-  if (init_ts_perturb > 0.0) then
+  if (init_t_perturb > 0.0) then
     call random_seed(size=rndm_seed_sz)
     allocate(rndm_seed(rndm_seed_sz))
     ni_global = G%ieg - G%isg + 1
@@ -464,7 +464,7 @@ subroutine MOM_initialize_state(u, v, h, tv, Time, G, GV, US, PF, dirs, &
         call random_seed(put=rndm_seed)
         do k=1,nz
           call random_number(pertval)
-          pertval = 2.0*init_ts_perturb*(0.5 - pertval)
+          pertval = 2.0*init_t_perturb*(0.5 - pertval)
           tv%T(i,j,k) = tv%T(i,j,k) * (1.0+pertval)
         enddo
       enddo
