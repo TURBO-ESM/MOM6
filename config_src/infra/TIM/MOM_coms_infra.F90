@@ -512,8 +512,10 @@ end function all_across_PEs
 !! If no communicator ID is provided, the framework's default communicator is used.
 subroutine MOM_infra_init(localcomm)
   integer, optional, intent(in) :: localcomm  !< Communicator ID to initialize
+
   call fms_init(localcomm)
   call amrex_init(localcomm)
+
 end subroutine
 
 !> This subroutine carries out all of the calls required to close out the infrastructure cleanly.
