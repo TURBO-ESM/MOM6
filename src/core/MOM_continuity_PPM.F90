@@ -2868,9 +2868,9 @@ subroutine PPM_limit_pos(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
 
     type(ocean_grid_type), intent(in) :: G                   !< Ocean's grid structure
     real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the 
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the
                                                              !! reconstruction [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the 
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the
                                                              !! reconstruction [H ~> m or kg m-2].
     real, intent(in)    :: h_min !< The minimum thickness that can be obtain by a
                                         !! concave parabolic fit [H ~> m or kg m-2]
@@ -2926,11 +2926,11 @@ end subroutine PPM_limit_pos
 subroutine PPM_limit_cw84(h_in, h_L, h_R, G, iis, iie, jis, jie)
     implicit none
 
-    type(ocean_grid_type), intent(in) :: G                   !< Ocean's grid structure 
+    type(ocean_grid_type), intent(in) :: G                   !< Ocean's grid structure
     real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the 
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the
                                                              !! reconstruction [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the 
+    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the
                                                              !! reconstruction [H ~> m or kg m-2].
     integer, intent(in) :: iis !< Start of i index range.
     integer, intent(in) :: iie !< End of i index range.
