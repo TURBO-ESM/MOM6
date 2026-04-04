@@ -1,16 +1,18 @@
 #include "timH.h"
 module tim_helperF
 
-use MOM_string_functions, only : uppercase
+  use MOM_string_functions, only : uppercase
+  use iso_c_binding, only : c_int
+
   implicit none
 
   logical, parameter :: use_AMREX = .TRUE.
-  integer, parameter :: TIMH_runAMREX   = _TIMH_RUNAMREX, &
-                        TIMH_capture    = _TIMH_CAPTURE, &
-                        TIMH_runFORTRAN = _TIMH_RUNFORTRAN
-  integer, parameter :: TIMH_CAPTURE_INPUT = _TIMH_CAPTURE_INPUT,  &
-                        TIMH_CAPTURE_OUTPUT = _TIMH_CAPTURE_OUTPUT, &
-                        TIMH_RUN = _TIMH_RUN
+  integer, parameter :: TIMH_runAMREX   = TIMH_RUNAMREX_, &
+                        TIMH_capture    = TIMH_CAPTURE_, &
+                        TIMH_runFORTRAN = TIMH_RUNFORTRAN_
+  integer(c_int), parameter :: TIMH_CAPTURE_INPUT = TIMH_CAPTURE_INPUT_,  &
+                        TIMH_CAPTURE_OUTPUT = TIMH_CAPTURE_OUTPUT_, &
+                        TIMH_RUN = TIMH_RUN_
 
    public :: TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
    public :: TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN

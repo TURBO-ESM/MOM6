@@ -53,7 +53,7 @@ implicit none ; private
     end subroutine ppm_limit_pos_bridge
   end interface
   interface
-    !> Bridge for the PPM_limit_pos subroutine
+    !> Bridge for the PPM_limit_cw84 subroutine
     subroutine ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
                                lo_i, hi_i, lo_j, hi_j, &
                                i_min, i_max, j_min, j_max, mode) bind(C)
@@ -2892,31 +2892,35 @@ subroutine PPM_limit_pos(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
 
     select case (mode)
        case (TIMH_runFORTRAN)
-
           ! Run Fortran code
           call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
              G, iis, iie, jis, jie)
 #ifndef _FMS
        case (TIMH_capture)
-
            ! Call C++ bridge to capture the input state
-           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min,  &
-              iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_INPUT)
+           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
+                   int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
+                   int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_INPUT,c_int))
 
-          ! Run Fortran truth
-          call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
-             G, iis, iie, jis, jie)
+           ! Run Fortran truth
+           call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
+              G, iis, iie, jis, jie)
 
            ! Call C++ bridge to capture the output state
-           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min,  &
-              iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_OUTPUT)
+           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
+                   int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
+                   int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_OUTPUT,c_int))
 
        case (TIMH_runAMREX)
-
-          ! Call C++ bridge to execute AMReX code
-          call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min,  &
-               iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_RUN)
+           ! Call C++ bridge to execute AMReX code
+           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
+                   int(jis,c_int), int(jie,c_int),int(imin,c_int), int(imax,c_int), &
+                   int(jmin,c_int), int(jmax,c_int), int(TIMH_RUN,c_int))
 #endif
+       case default
+          ! Run Fortran code
+          call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
+              G, iis, iie, jis, jie)
 
     end select
 
@@ -2958,23 +2962,31 @@ subroutine PPM_limit_cw84(h_in, h_L, h_R, G, iis, iie, jis, jie)
        case (TIMH_capture)
 
           ! Call C++ bridge to capture the input state
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
-             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_INPUT)
+          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
+                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int),  &
+                  int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_INPUT,c_int))
 
           ! Run Fortran truth
           call ppm_limit_cw84_fortran(h_in, h_L, h_R, &
               G, iis, iie, jis, jie)
 
           ! Call C++ bridge to capture the output  state
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
-             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_CAPTURE_OUTPUT)
+          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
+                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
+                  int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_OUTPUT,c_int))
 
        case (TIMH_runAMREX)
 
           !  Call C+ bridge to execute AMReX code
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
-             iis, iie, jis, jie, imin, imax, jmin, jmax, TIMH_RUN)
+          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
+                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
+                  int(jmin,c_int), int(jmax,c_int), TIMH_RUN)
 #endif
+       case default
+
+          ! Run Fortran code
+          call ppm_limit_cw84_fortran(h_in, h_L, h_R, &
+              G, iis, iie, jis, jie)
 
      end select
 
