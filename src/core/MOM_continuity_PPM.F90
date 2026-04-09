@@ -1,4 +1,4 @@
-#define _FMS
+#undef _FMS
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -29,35 +29,7 @@ implicit none ; private
   !----------------------------------------
   interface
     !> Bridge for the PPM_limit_pos subroutine
-    subroutine ppm_limit_pos_bridge(h_in, h_L, h_R, h_min,  &
-                               lo_i, hi_i, lo_j, hi_j, &
-                               i_min, i_max, j_min, j_max, mode) bind(C)
-      use iso_c_binding
-      implicit none
-
-      real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction
-                                               !! [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction
-                                               !! [H ~> m or kg m-2].
-      real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
-                                               !! by a concave parabolic fit [H ~> m or kg m-2]
-      integer(c_int), intent(in) :: lo_i   !< Start of i index range.
-      integer(c_int), intent(in) :: hi_i   !< End of i index range.
-      integer(c_int), intent(in) :: lo_j   !< Start of j index range.
-      integer(c_int), intent(in) :: hi_j   !< End of j index range.
-      integer(c_int), intent(in) :: i_min  !< lower bound for the i dimension
-      integer(c_int), intent(in) :: i_max  !< upper bound for the i dimension
-      integer(c_int), intent(in) :: j_min  !< lower bound for the j dimension
-      integer(c_int), intent(in) :: j_max  !< upper bound for the j dimension
-      integer(c_int), intent(in) :: mode   !< Execution mode of the bridge
-
-    end subroutine ppm_limit_pos_bridge
-  end interface
-
-  interface
-    !> Bridge for the PPM_limit_pos2 subroutine
-    subroutine ppm_limit_pos_bridge2(bx, h_in, h_L, h_R, h_min, mode) bind(C)
+    subroutine ppm_limit_pos_bridge(bx, h_in, h_L, h_R, h_min, mode) bind(C)
        use iso_c_binding
        use array_mod, only : RealArray_c
        use box_mod,   only : Box_c
@@ -71,38 +43,12 @@ implicit none ; private
        real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
                                                 !! by a concave parabolic fit [H ~> m or kg m-2]
        integer(c_int), intent(in) :: mode       !< Execution mode of the briddge
-    end subroutine
+    end subroutine ppm_limit_pos_bridge
   end interface
 
   interface
     !> Bridge for the PPM_limit_cw84 subroutine
-    subroutine ppm_limit_cw84_bridge(h_in, h_L, h_R,  &
-                               lo_i, hi_i, lo_j, hi_j, &
-                               i_min, i_max, j_min, j_max, mode) bind(C)
-      use iso_c_binding
-      implicit none
-
-      real(c_double), intent(in)    :: h_in(*) !< Layer thickness [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_L(*)  !< Left thickness in the reconstruction
-                                               !! [H ~> m or kg m-2].
-      real(c_double), intent(inout) :: h_R(*)  !< Right thickness in the reconstruction
-                                               !! [H ~> m or kg m-2].
-      integer(c_int), intent(in) :: lo_i   !< Start of i index range.
-      integer(c_int), intent(in) :: hi_i   !< End of i index range.
-      integer(c_int), intent(in) :: lo_j   !< Start of j index range.
-      integer(c_int), intent(in) :: hi_j   !< End of j index range.
-      integer(c_int), intent(in) :: i_min  !< lower bound for the i dimension
-      integer(c_int), intent(in) :: i_max  !< upper bound for the i dimension
-      integer(c_int), intent(in) :: j_min  !< lower bound for the j dimension
-      integer(c_int), intent(in) :: j_max  !< upper bound for the j dimension
-      integer(c_int), intent(in) :: mode   !< Execution mode of the bridg
-
-    end subroutine ppm_limit_cw84_bridge
-  end interface
-
-  interface
-    !> Bridge for the PPM_limit_cw84 subroutine
-    subroutine ppm_limit_cw84_bridge2(bx, h_in, h_L, h_R, mode) bind(C)
+    subroutine ppm_limit_cw84_bridge(bx, h_in, h_L, h_R, mode) bind(C)
       use iso_c_binding
       use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
@@ -116,7 +62,7 @@ implicit none ; private
                                                 !! [H ~> m or kg m-2].
       integer(c_int), intent(in) :: mode        !< Execution mode of the bridg
 
-    end subroutine ppm_limit_cw84_bridge2
+    end subroutine ppm_limit_cw84_bridge
   end interface
 
 
@@ -2454,7 +2400,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, LB, h_min, monotonic, simple_
   call bx%alloc(ndims)
   call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,1])
 
-  ! Extend the iteration space by one in the i dimension
+  ! Extend the iteration space by one in the i-dimension
   !bxE = bx%expand(dim=1,n=1)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
@@ -2562,10 +2508,10 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, LB, h_min, monotonic, simple_
 
   if (monotonic) then
     ! call PPM_limit_CW84(h_in, h_W, h_E, G, isl, iel, jsl, jel)
-    call PPM_limit_CW842(bx, h_in_a, h_W_a, h_E_a)
+    call PPM_limit_cw84(bx, h_in_a, h_W_a, h_E_a)
   else
     ! call PPM_limit_pos(h_in, h_W, h_E, h_min, G, isl, iel, jsl, jel)
-    call PPM_limit_pos2(bx, h_in_a, h_W_a, h_E_a, h_min)
+    call PPM_limit_pos(bx, h_in_a, h_W_a, h_E_a, h_min)
   endif
 
   ! Copy data back to Fortran arrays
@@ -2732,10 +2678,10 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, LB, h_min, monotonic, simple_
 
   if (monotonic) then
     ! call PPM_limit_CW84(h_in, h_S, h_N, G, isl, iel, jsl, jel)
-    call PPM_limit_CW842(bx, h_in_a, h_S_a, h_N_a)
+    call PPM_limit_cw84(bx, h_in_a, h_S_a, h_N_a)
   else
     ! call PPM_limit_pos(h_in, h_S, h_N, h_min, G, isl, iel, jsl, jel)
-    call PPM_limit_pos2(bx, h_in_a, h_S_a, h_N_a, h_min)
+    call PPM_limit_pos(bx, h_in_a, h_S_a, h_N_a, h_min)
   endif
   ! Copy data back to Fortran arrays
   call h_S_a%copy2F(h_S)
@@ -2755,51 +2701,7 @@ end subroutine PPM_reconstruction_y
 !! to give a reconstruction that is positive-definite.  Here this is
 !! reinterpreted as giving a constant thickness if the mean thickness is less
 !! than h_min, with a minimum of h_min otherwise.
-subroutine PPM_limit_pos_fortran(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
-  type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
-  real, dimension(SZI_(G),SZJ_(G)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
-  real, dimension(SZI_(G),SZJ_(G)),  intent(inout) :: h_L !< Left thickness in the reconstruction [H ~> m or kg m-2].
-  real, dimension(SZI_(G),SZJ_(G)),  intent(inout) :: h_R !< Right thickness in the reconstruction [H ~> m or kg m-2].
-  real,                              intent(in)  :: h_min !< The minimum thickness
-                    !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
-  integer,                           intent(in)  :: iis      !< Start of i index range.
-  integer,                           intent(in)  :: iie      !< End of i index range.
-  integer,                           intent(in)  :: jis      !< Start of j index range.
-  integer,                           intent(in)  :: jie      !< End of j index range.
-
-! Local variables
-  real    :: curv  ! The grid-normalized curvature of the three thicknesses  [H ~> m or kg m-2]
-  real    :: dh    ! The difference between the edge thicknesses             [H ~> m or kg m-2]
-  real    :: scale ! A scaling factor to reduce the curvature of the fit               [nondim]
-  integer :: i,j
-
-  do j=jis,jie ; do i=iis,iie
-    ! This limiter prevents undershooting minima within the domain with
-    ! values less than h_min.
-    curv = 3.0*((h_L(i,j) + h_R(i,j)) - 2.0*h_in(i,j))
-    if (curv > 0.0) then ! Only minima are limited.
-      dh = h_R(i,j) - h_L(i,j)
-      if (abs(dh) < curv) then ! The parabola's minimum is within the cell.
-        if (h_in(i,j) <= h_min) then
-          h_L(i,j) = h_in(i,j) ; h_R(i,j) = h_in(i,j)
-        elseif (12.0*curv*(h_in(i,j) - h_min) < (curv**2 + 3.0*dh**2)) then
-          ! The minimum value is h_in - (curv^2 + 3*dh^2)/(12*curv), and must
-          ! be limited in this case.  0 < scale < 1.
-          scale = 12.0*curv*(h_in(i,j) - h_min) / (curv**2 + 3.0*dh**2)
-          h_L(i,j) = h_in(i,j) + scale*(h_L(i,j) - h_in(i,j))
-          h_R(i,j) = h_in(i,j) + scale*(h_R(i,j) - h_in(i,j))
-        endif
-      endif
-    endif
-  enddo ; enddo
-
-end subroutine PPM_limit_pos_fortran
-
-!> This subroutine limits the left/right edge values of the PPM reconstruction
-!! to give a reconstruction that is positive-definite.  Here this is
-!! reinterpreted as giving a constant thickness if the mean thickness is less
-!! than h_min, with a minimum of h_min otherwise.
-subroutine PPM_limit_pos_fortran2(bx, h_in_a, h_L_a, h_R_a, h_min)
+subroutine PPM_limit_pos_fortran(bx, h_in_a, h_L_a, h_R_a, h_min)
   type(Box_t),        intent(in)    :: bx     !< Box over which to iterate
   type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
   type(RealArray_t),  intent(inout) :: h_L_a  !< Left thickness in the reconstruction [H ~> m or kg m-2].
@@ -2839,52 +2741,11 @@ subroutine PPM_limit_pos_fortran2(bx, h_in_a, h_L_a, h_R_a, h_min)
     endif
   enddo ; enddo
 
-end subroutine PPM_limit_pos_fortran2
+end subroutine PPM_limit_pos_fortran
 
 !> This subroutine limits the left/right edge values of the PPM reconstruction
 !! according to the monotonic prescription of Colella and Woodward, 1984.
-subroutine PPM_limit_CW84_fortran(h_in, h_L, h_R, G, iis, iie, jis, jie)
-  type(ocean_grid_type),             intent(in)  :: G     !< Ocean's grid structure.
-  real, dimension(SZI_(G),SZJ_(G)),  intent(in)  :: h_in  !< Layer thickness [H ~> m or kg m-2].
-  real, dimension(SZI_(G),SZJ_(G)),  intent(inout) :: h_L !< Left thickness in the reconstruction,
-                                                          !! [H ~> m or kg m-2].
-  real, dimension(SZI_(G),SZJ_(G)),  intent(inout) :: h_R !< Right thickness in the reconstruction,
-                                                          !! [H ~> m or kg m-2].
-  integer,                           intent(in)  :: iis   !< Start of i index range.
-  integer,                           intent(in)  :: iie   !< End of i index range.
-  integer,                           intent(in)  :: jis   !< Start of j index range.
-  integer,                           intent(in)  :: jie   !< End of j index range.
-
-  ! Local variables
-  real    :: h_i      ! A copy of the cell-average layer thickness                [H ~> m or kg m-2]
-  real    :: RLdiff   ! The difference between the input edge values              [H ~> m or kg m-2]
-  real    :: RLdiff2  ! The squared difference between the input edge values   [H2 ~> m2 or kg2 m-4]
-  real    :: RLmean   ! The average of the input edge thicknesses                 [H ~> m or kg m-2]
-  real    :: FunFac   ! A curious product of the thickness slope and curvature [H2 ~> m2 or kg2 m-4]
-  integer :: i, j
-
-  do j=jis,jie ; do i=iis,iie
-    ! This limiter monotonizes the parabola following
-    ! Colella and Woodward, 1984, Eq. 1.10
-    h_i = h_in(i,j)
-    if ( ( h_R(i,j) - h_i ) * ( h_i - h_L(i,j) ) <= 0. ) then
-      h_L(i,j) = h_i ; h_R(i,j) = h_i
-    else
-      RLdiff = h_R(i,j) - h_L(i,j)            ! Difference of edge values
-      RLmean = 0.5 * ( h_R(i,j) + h_L(i,j) )  ! Mean of edge values
-      FunFac = 6. * RLdiff * ( h_i - RLmean ) ! Some funny factor
-      RLdiff2 = RLdiff * RLdiff               ! Square of difference
-      if ( FunFac >  RLdiff2 ) h_L(i,j) = 3. * h_i - 2. * h_R(i,j)
-      if ( FunFac < -RLdiff2 ) h_R(i,j) = 3. * h_i - 2. * h_L(i,j)
-    endif
-  enddo ; enddo
-
-  return
-end subroutine PPM_limit_CW84_fortran
-
-!> This subroutine limits the left/right edge values of the PPM reconstruction
-!! according to the monotonic prescription of Colella and Woodward, 1984.
-subroutine PPM_limit_CW84_fortran2(bx, h_in_a, h_L_a, h_R_a)
+subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
   type(box_t),         intent(in)   :: bx     !< Iteration box
   type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
   type(RealArray_t),  intent(inout) :: h_L_a  !< Left thickness in the reconstruction,
@@ -2923,7 +2784,7 @@ subroutine PPM_limit_CW84_fortran2(bx, h_in_a, h_L_a, h_R_a)
   enddo ; enddo
 
   return
-end subroutine PPM_limit_CW84_fortran2
+end subroutine PPM_limit_CW84_fortran
 
 
 !> Return the maximum ratio of a/b or maxrat.
@@ -3066,71 +2927,7 @@ function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
 end function set_continuity_loop_bounds
 
 !< Shim for PPM_limit_pos
-subroutine PPM_limit_pos(h_in, h_L, h_R, h_min, G, iis, iie, jis, jie)
-    implicit none
-
-    type(ocean_grid_type), intent(in) :: G                   !< Ocean's grid structure
-    real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the
-                                                             !! reconstruction [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the
-                                                             !! reconstruction [H ~> m or kg m-2].
-    real, intent(in)    :: h_min !< The minimum thickness that can be obtain by a
-                                        !! concave parabolic fit [H ~> m or kg m-2]
-    integer, intent(in) :: iis !< Start of i index range.
-    integer, intent(in) :: iie !< End of i index range.
-    integer, intent(in) :: jis !< Start of j index range.
-    integer, intent(in) :: jie !< End of j index range.
-
-    ! local variables
-    integer :: imin, imax, jmin, jmax
-    integer :: mode
-
-    imin = LBOUND(h_in,dim=1)
-    imax = UBOUND(h_in,dim=1)
-    jmin = LBOUND(h_in,dim=2)
-    jmax = UBOUND(h_in,dim=2)
-
-    mode = getenv_mode("PPM_LIMIT_POS_MODE",default=TIMH_runFORTRAN)
-
-    select case (mode)
-       case (TIMH_runFORTRAN)
-          ! Run Fortran code
-          call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
-             G, iis, iie, jis, jie)
-#ifndef _FMS
-       case (TIMH_capture)
-           ! Call C++ bridge to capture the input state
-           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
-                   int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
-                   int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_INPUT,c_int))
-
-           ! Run Fortran truth
-           call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
-              G, iis, iie, jis, jie)
-
-           ! Call C++ bridge to capture the output state
-           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
-                   int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
-                   int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_OUTPUT,c_int))
-
-       case (TIMH_runAMREX)
-           ! Call C++ bridge to execute AMReX code
-           call ppm_limit_pos_bridge(h_in, h_L, h_R, h_min, int(iis,c_int), int(iie,c_int), &
-                   int(jis,c_int), int(jie,c_int),int(imin,c_int), int(imax,c_int), &
-                   int(jmin,c_int), int(jmax,c_int), int(TIMH_RUN,c_int))
-#endif
-       case default
-          ! Run Fortran code
-          call ppm_limit_pos_fortran(h_in, h_L, h_R, h_min,  &
-              G, iis, iie, jis, jie)
-
-    end select
-
-end subroutine PPM_limit_pos
-
-!< Shim for PPM_limit_pos2
-subroutine PPM_limit_pos2(bx, h_in, h_L, h_R, h_min)
+subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
     implicit none
 
     type(box_t), intent(in)          :: bx   !< Box over which to iterate
@@ -3155,101 +2952,35 @@ subroutine PPM_limit_pos2(bx, h_in, h_L, h_R, h_min)
     select case (mode)
        case (TIMH_runFORTRAN)
           ! Run Fortran code
-          call ppm_limit_pos_fortran2(bx,h_in, h_L, h_R, h_min)
+          call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 #ifndef _FMS
        case (TIMH_capture)
            ! Call C++ bridge to capture the input state
-           call ppm_limit_pos_bridge2(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
+           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
                    int(TIMH_CAPTURE_INPUT,c_int))
 
            ! Run Fortran truth
-           call ppm_limit_pos_fortran2(bx,h_in, h_L, h_R, h_min)
+           call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 
            ! Call C++ bridge to capture the output state
-           call ppm_limit_pos_bridge2(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
+           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
                    int(TIMH_CAPTURE_OUTPUT,c_int))
 
        case (TIMH_runAMREX)
            ! Call C++ bridge to execute AMReX code
-           call ppm_limit_pos_bridge2(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
+           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
                    int(TIMH_RUN,c_int))
 #endif
        case default
           ! Run Fortran code
-          call ppm_limit_pos_fortran2(bx,h_in, h_L, h_R, h_min)
+          call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 
     end select
 
-end subroutine PPM_limit_pos2
+end subroutine PPM_limit_pos
 
 !< Shim for PPM_limit_cw84
-subroutine PPM_limit_cw84(h_in, h_L, h_R, G, iis, iie, jis, jie)
-    implicit none
-
-    type(ocean_grid_type), intent(in) :: G                   !< Ocean's grid structure
-    real, dimension(SZI_(G), SZJ_(G)), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_L  !< Left thickness in the
-                                                             !! reconstruction [H ~> m or kg m-2].
-    real, dimension(SZI_(G), SZJ_(G)), intent(inout) :: h_R  !< Right thickness in the
-                                                             !! reconstruction [H ~> m or kg m-2].
-    integer, intent(in) :: iis !< Start of i index range.
-    integer, intent(in) :: iie !< End of i index range.
-    integer, intent(in) :: jis !< Start of j index range.
-    integer, intent(in) :: jie !< End of j index range.
-
-    ! local variables
-    integer :: imin, imax, jmin, jmax
-    integer :: mode
-
-    imin = LBOUND(h_in,dim=1)
-    imax = UBOUND(h_in,dim=1)
-    jmin = LBOUND(h_in,dim=2)
-    jmax = UBOUND(h_in,dim=2)
-
-    mode = getenv_mode("PPM_LIMIT_CW84_MODE", default=TIMH_runFORTRAN)
-    ! Call C++ bridge
-    select case (mode)
-       case (TIMH_runFORTRAN)
-
-          ! Run Fortran code
-          call ppm_limit_cw84_fortran(h_in, h_L, h_R, &
-              G, iis, iie, jis, jie)
-#ifndef _FMS
-       case (TIMH_capture)
-
-          ! Call C++ bridge to capture the input state
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
-                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int),  &
-                  int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_INPUT,c_int))
-
-          ! Run Fortran truth
-          call ppm_limit_cw84_fortran(h_in, h_L, h_R, &
-              G, iis, iie, jis, jie)
-
-          ! Call C++ bridge to capture the output  state
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
-                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
-                  int(jmin,c_int), int(jmax,c_int), int(TIMH_CAPTURE_OUTPUT,c_int))
-
-       case (TIMH_runAMREX)
-
-          !  Call C+ bridge to execute AMReX code
-          call ppm_limit_cw84_bridge(h_in, h_L, h_R, int(iis,c_int), int(iie,c_int), &
-                  int(jis,c_int), int(jie,c_int), int(imin,c_int), int(imax,c_int), &
-                  int(jmin,c_int), int(jmax,c_int), TIMH_RUN)
-#endif
-       case default
-
-          ! Run Fortran code
-          call ppm_limit_cw84_fortran(h_in, h_L, h_R, &
-              G, iis, iie, jis, jie)
-
-     end select
-
-end subroutine PPM_limit_cw84
-
-!< Shim for PPM_limit_cw84
-subroutine PPM_limit_cw842(bx, h_in, h_L, h_R)
+subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
     implicit none
 
     type(Box_t), intent(in)          :: bx   !< Box over which to iterate
@@ -3272,36 +3003,35 @@ subroutine PPM_limit_cw842(bx, h_in, h_L, h_R)
        case (TIMH_runFORTRAN)
 
           ! Run Fortran code
-          call ppm_limit_cw84_fortran2(bx, h_in, h_L, h_R)
+          call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
 #ifndef _FMS
        case (TIMH_capture)
 
           ! Call C++ bridge to capture the input state
-          call ppm_limit_cw84_bridge2(bx_c, h_in_c, h_L_c, h_R_c, &
+          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
                   int(TIMH_CAPTURE_INPUT,c_int))
 
           ! Run Fortran truth
-          call ppm_limit_cw84_fortran2(bx, h_in, h_L, h_R)
+          call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
 
           ! Call C++ bridge to capture the output  state
-          call ppm_limit_cw84_bridge2(bx_c, h_in_c, h_L_c, h_R_c, &
+          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
                   int(TIMH_CAPTURE_OUTPUT,c_int))
 
        case (TIMH_runAMREX)
 
           !  Call C+ bridge to execute AMReX code
-          call ppm_limit_cw84_bridge2(bx_c, h_in_c, h_L_c, h_R_c, &
+          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
                   int(TIMH_RUN,c_int))
 #endif
        case default
 
           ! Run Fortran code
-          call ppm_limit_cw84_fortran2(bx, h_in, h_L, h_R)
+          call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
 
      end select
 
-end subroutine PPM_limit_cw842
-
+end subroutine PPM_limit_cw84
 
 !> \namespace mom_continuity_ppm
 !!
