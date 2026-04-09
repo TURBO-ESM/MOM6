@@ -2451,7 +2451,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, LB, h_min, monotonic, simple_
   isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
   ! Box that describes the iteration space
   call bx%alloc(ndims)
-  call bx%set(idxS=[isl,iel,1],idxE=[jsl,jel,1])
+  call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,1])
 
   ! Extend the iteration space by one in the i dimension
   !bxE = bx%expand(dim=1,n=1)
@@ -2623,10 +2623,9 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, LB, h_min, monotonic, simple_
 
   ! The iteration space
   isl = LB%ish ; iel = LB%ieh ; jsl = LB%jsh-1 ; jel = LB%jeh+1
-
-    ! Box that describes the iteration space
+  ! Box that describes the iteration space
   call bx%alloc(ndims)
-  call bx%set(idxS=[isl,iel,1],idxE=[jsl,jel,1])
+  call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,1])
   bxE = bx%expand(dim=2,n=1)   ! expand the j-dimension
 
   ! This is the stencil of the reconstruction, not the scheme overall.
