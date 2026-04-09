@@ -15,7 +15,7 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : BT_cont_type, porous_barrier_type
 use MOM_verticalGrid, only : verticalGrid_type
 
-use array_mod, only : RealArray_t, RealArray_c 
+use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
 use iso_c_binding, only : c_double, c_int, c_ptr, c_loc
 use TIM_helperF, only : getenv_mode
@@ -56,6 +56,7 @@ implicit none ; private
   end interface
 
   interface
+    !> Bridge for the PPM_limit_pos2 subroutine
     subroutine ppm_limit_pos_bridge2(bx, h_in, h_L, h_R, h_min, mode) bind(C)
        use iso_c_binding
        use array_mod, only : RealArray_c
@@ -63,7 +64,7 @@ implicit none ; private
        implicit none
        type(Box_C), intent(in)          :: bx   !< Index space over which to iterate
        type(RealArray_C), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-       type(RealArray_C), intent(inout) :: h_L  !< Left thickness in the reconstruction 
+       type(RealArray_C), intent(inout) :: h_L  !< Left thickness in the reconstruction
                                                 !! [H ~> m or kg m-2].
        type(RealArray_C), intent(inout) :: h_R  !< Right thickness in the reconstruction
                                                 !! [H ~> m or kg m-2].
@@ -103,10 +104,10 @@ implicit none ; private
     !> Bridge for the PPM_limit_cw84 subroutine
     subroutine ppm_limit_cw84_bridge2(bx, h_in, h_L, h_R, mode) bind(C)
       use iso_c_binding
-      use array_mod, only : RealArray_c 
+      use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
       implicit none
-       
+
       type(Box_C), intent(in)           :: bx   !< Index space over which to iterate
       type(RealArray_C),  intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
       type(RealArray_C),  intent(inout) :: h_L  !< Left thickness in the reconstruction
@@ -2884,7 +2885,7 @@ end subroutine PPM_limit_CW84_fortran
 !> This subroutine limits the left/right edge values of the PPM reconstruction
 !! according to the monotonic prescription of Colella and Woodward, 1984.
 subroutine PPM_limit_CW84_fortran2(bx, h_in_a, h_L_a, h_R_a)
-  type(box_t),         intent(in)   :: bx     !< Iteration box 
+  type(box_t),         intent(in)   :: bx     !< Iteration box
   type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
   type(RealArray_t),  intent(inout) :: h_L_a  !< Left thickness in the reconstruction,
                                               !! [H ~> m or kg m-2].
@@ -3132,11 +3133,11 @@ end subroutine PPM_limit_pos
 subroutine PPM_limit_pos2(bx, h_in, h_L, h_R, h_min)
     implicit none
 
-    type(box_t), intent(in)          :: bx
-    type(RealArray_t), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2]. 
-    type(RealArray_t), intent(inout) :: h_L  !< Left thickness in the reconstruction 
+    type(box_t), intent(in)          :: bx   !< Box over which to iterate
+    type(RealArray_t), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
+    type(RealArray_t), intent(inout) :: h_L  !< Left thickness in the reconstruction
                                              !! [H ~> m or kg m-2].
-    type(RealArray_t), intent(inout) :: h_R  !< Right thickness in the reconstruction 
+    type(RealArray_t), intent(inout) :: h_R  !< Right thickness in the reconstruction
                                              !! [H ~> m or kg m-2].
     real, intent(in)    :: h_min             !< The minimum thickness that can be obtain by a
                                              !! concave parabolic fit [H ~> m or kg m-2]
@@ -3145,7 +3146,7 @@ subroutine PPM_limit_pos2(bx, h_in, h_L, h_R, h_min)
     integer :: mode
     type(RealArray_C) :: h_in_c, h_L_c, h_R_c
     type(Box_c) :: bx_c
-    
+
     ! create C-compatible descriptors
     bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
 
@@ -3251,7 +3252,7 @@ end subroutine PPM_limit_cw84
 subroutine PPM_limit_cw842(bx, h_in, h_L, h_R)
     implicit none
 
-    type(Box_t), intent(in)          :: bx  !< Box over which to iterate  
+    type(Box_t), intent(in)          :: bx   !< Box over which to iterate  
     type(RealArray_t), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
     type(RealArray_t), intent(inout) :: h_L  !< Left thickness in the
                                              !! reconstruction [H ~> m or kg m-2].

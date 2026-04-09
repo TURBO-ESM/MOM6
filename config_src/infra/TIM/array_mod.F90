@@ -46,16 +46,16 @@ module array_mod
                   dupReal3D, dupReal4D
      generic :: copy2F => copy2FReal1D, &       !< Generic interface for copy to Fortran arrayc
                 copy2FReal2D, copy2FReal3d, &
-                copy2FReal4D 
+                copy2FReal4D
      generic :: copy2Array => copy2AReal1D, &   !< Generic interface for copy to array container
                 copy2AReal2D, copy2AReal3D, &
                 copy2AReal4D
      generic :: view => viewReal1D, &         !< Generic interface for view
                 viewReal2D, viewReal3D, &
-                viewReal4D 
+                viewReal4D
      generic :: alloc => allocReal1D, &       !< Generic interface for array container allocation
                 allocReal2D, allocReal3D, &
-                allocReal4D 
+                allocReal4D
      generic :: dup => dupReal1D, &           !< Generic interface for duplicate
                 dupReal2D, dupReal3D, &
                 dupReal4D
@@ -106,24 +106,24 @@ contains
 function to_c_Real(this) result(cdesc)
   class(RealArray_t), intent(in) :: this  !< RealArray_t structure to convert to C
   type(RealArray_C) :: cdesc              !< Resulting C structure
-      
+
   cdesc%data  = c_loc(this%data(1))
   cdesc%shape = c_loc(this%shape(1))
   cdesc%lb    = c_loc(this%lb(1))
   cdesc%ub    = c_loc(this%ub(1))
-  cdesc%rank  = this%rank                      
+  cdesc%rank  = this%rank
 end function to_c_Real
 
 !< Function to convert a Fortran structure to a C structure
 function to_c_Int(this) result(cdesc)
   class(IntArray_t), intent(in) :: this    !< IntArray_t structure to convert to C 
   type(IntArray_C) :: cdesc                !< Resulting C structure
-      
+
   cdesc%data  = c_loc(this%data(1))
   cdesc%shape = c_loc(this%shape(1))
   cdesc%lb    = c_loc(this%lb(1))
   cdesc%ub    = c_loc(this%ub(1))
-  cdesc%rank  = this%rank                      
+  cdesc%rank  = this%rank
 end function to_c_Int
 
 subroutine allocReal(this, dims,lb,ub,source)
@@ -322,7 +322,7 @@ subroutine copy2FReal4D(this,var)
 end subroutine copy2FReal4D
 
 !< Duplicate a Fortran array
-subroutine dupReal1D(this,var) 
+subroutine dupReal1D(this,var)
   class(RealArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:) :: var                 !< The Fortran array to duplicate
 
@@ -336,7 +336,7 @@ subroutine dupReal1D(this,var)
 end subroutine dupReal1D
 
 !< Duplicate a Fortran array
-subroutine dupReal2D(this,var) 
+subroutine dupReal2D(this,var)
   class(RealArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:) :: var               !< The Fortran array to duplicate
 
@@ -352,7 +352,7 @@ subroutine dupReal2D(this,var)
 end subroutine dupReal2D
 
 !< Duplicate a Fortran array
-subroutine dupReal3D(this,var) 
+subroutine dupReal3D(this,var)
   class(RealArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:,:) :: var             !< The Fortran array to duplicate
 
@@ -370,7 +370,7 @@ subroutine dupReal3D(this,var)
 end subroutine dupReal3D
 
 !< Duplicate a Fortran array
-subroutine dupReal4D(this,var) 
+subroutine dupReal4D(this,var)
   class(RealArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:,:,:) :: var           !< The Fortran array to duplicate
 
@@ -539,7 +539,7 @@ subroutine copy2FInt4D(this,var)
 
 end subroutine copy2FInt4D
 
-subroutine dupInt1D(this,var) 
+subroutine dupInt1D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:) :: var                 !< The Fortran array to duplicate
 
@@ -552,7 +552,7 @@ subroutine dupInt1D(this,var)
 
 end subroutine dupInt1D
 
-subroutine dupInt2D(this,var) 
+subroutine dupInt2D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:) :: var               !< The Fortran array to duplicate
 
@@ -567,7 +567,7 @@ subroutine dupInt2D(this,var)
 
 end subroutine dupInt2D
 
-subroutine dupInt3D(this,var) 
+subroutine dupInt3D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:,:) :: var             !< The Fortran array to duplicate
 
@@ -584,7 +584,7 @@ subroutine dupInt3D(this,var)
 
 end subroutine dupInt3D
 
-subroutine dupInt4D(this,var) 
+subroutine dupInt4D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
   real, dimension(:,:,:,:) :: var           !< The Fortran array to duplicate
 

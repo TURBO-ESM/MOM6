@@ -40,7 +40,7 @@ subroutine allocBox(this,ndims)
   integer, intent(in) :: ndims          !< The number of dimension in the box
 
   ! If already associated deallocate
-  if(associated(this%idxS)) deallocate(this%idxS) 
+  if(associated(this%idxS)) deallocate(this%idxS)
   if(associated(this%idxE)) deallocate(this%idxS)
 
   allocate(this%idxS(ndims), source=0)
