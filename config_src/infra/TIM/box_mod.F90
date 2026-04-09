@@ -23,7 +23,7 @@ module box_mod
      procedure   :: expandBox          !< Increase the bounds of a box in one dimension
                                        !! both extents of box are increased by a fixed amount
      procedure   :: contractBox        !< Decrease the bounds of a box in one dimension
-                                       !! both extents of box are decreased by a fixed amount 
+                                       !! both extents of box are decreased by a fixed amount
      generic     :: alloc => allocBox  !< Allocate memory for a box
      generic     :: free => freeBox    !< Deallocates memory used by box
      generic     :: set => setBox      !< Set the extent of a box

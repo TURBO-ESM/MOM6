@@ -116,7 +116,7 @@ end function to_c_Real
 
 !< Function to convert a Fortran structure to a C structure
 function to_c_Int(this) result(cdesc)
-  class(IntArray_t), intent(in) :: this    !< IntArray_t structure to convert to C 
+  class(IntArray_t), intent(in) :: this    !< IntArray_t structure to convert to C
   type(IntArray_C) :: cdesc                !< Resulting C structure
 
   cdesc%data  = c_loc(this%data(1))

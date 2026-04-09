@@ -3252,7 +3252,7 @@ end subroutine PPM_limit_cw84
 subroutine PPM_limit_cw842(bx, h_in, h_L, h_R)
     implicit none
 
-    type(Box_t), intent(in)          :: bx   !< Box over which to iterate  
+    type(Box_t), intent(in)          :: bx   !< Box over which to iterate
     type(RealArray_t), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
     type(RealArray_t), intent(inout) :: h_L  !< Left thickness in the
                                              !! reconstruction [H ~> m or kg m-2].
