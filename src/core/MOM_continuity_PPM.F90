@@ -2395,7 +2395,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   call bx%alloc(ndims)
   call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
 
-  ! Extend the iteration space by one in the i-dimension
+  ! Create an second box that Extends the iteration space by one in the i-dimension
   bxE = bx%expand(dim=1,n=1)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
@@ -2566,7 +2566,8 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
   ! Box that describes the iteration space
   call bx%alloc(ndims)
   call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
-  bxE = bx%expand(dim=2,n=1)   ! expand the j-dimension
+  ! Create an second box that Extends the iteration space by one in the j-dimension
+  bxE = bx%expand(dim=2,n=1)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
   stencil = 2 ; if (simple_2nd) stencil = 1
@@ -2771,7 +2772,7 @@ subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
       if ( FunFac >  RLdiff2 ) h_L(i,j,k) = 3. * h_i - 2. * h_R(i,j,k)
       if ( FunFac < -RLdiff2 ) h_R(i,j,k) = 3. * h_i - 2. * h_L(i,j,k)
     endif
-  enddo 
+  enddo
 
   return
 end subroutine PPM_limit_CW84_fortran
