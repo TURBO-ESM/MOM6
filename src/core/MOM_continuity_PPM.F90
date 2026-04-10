@@ -1,4 +1,4 @@
-#define _FMS
+#undef _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -506,7 +506,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
       h_W(i,j,k) = h_in(i,j,k) ; h_E(i,j,k) = h_in(i,j,k)
     enddo ; enddo ; enddo
   else
-      call PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, &
+      call PPM_reconstruction_x(h_in, h_W, h_E, G, GV, G%mask2dT, LB, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
@@ -550,7 +550,7 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
       h_S(i,j,k) = h_in(i,j,k) ; h_N(i,j,k) = h_in(i,j,k)
     enddo ; enddo ; enddo
   else
-      call PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, &
+      call PPM_reconstruction_y(h_in, h_S, h_N, G, GV, G%mask2dT, LB, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
@@ -2351,7 +2351,7 @@ subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, vh_tot_0, dvhdv_tot_0, 
 end subroutine set_merid_BT_cont
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalgrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
@@ -2359,6 +2359,8 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
                                                          !! [H ~> m or kg m-2].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(out) :: h_E  !< East edge thickness in the reconstruction,
                                                          !! [H ~> m or kg m-2].
+  real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
+                                                           !! on the h-grid [nondim]
   type(cont_loop_bounds_type),       intent(in)  :: LB   !< Active loop bounds structure.
   real,                              intent(in)  :: h_min !< The minimum thickness
                     !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
@@ -2416,14 +2418,14 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
-      h_im1 = G%mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-G%mask2dT(i-1,j)) * h_in(i,j,k)
-      h_ip1 = G%mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-G%mask2dT(i+1,j)) * h_in(i,j,k)
+      h_im1 = mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-mask2dT(i-1,j)) * h_in(i,j,k)
+      h_ip1 = mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-mask2dT(i+1,j)) * h_in(i,j,k)
       h_W(i,j,k) = 0.5*( h_im1 + h_in(i,j,k) )
       h_E(i,j,k) = 0.5*( h_ip1 + h_in(i,j,k) )
     enddo
   else
     do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
-      if ((G%mask2dT(i-1,j) * G%mask2dT(i,j) * G%mask2dT(i+1,j)) == 0.0) then
+      if ((mask2dT(i-1,j) * mask2dT(i,j) * mask2dT(i+1,j)) == 0.0) then
         slp(i,j,k) = 0.0
       else
         ! This uses a simple 2nd order slope.
@@ -2432,7 +2434,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
         dMx = max(h_in(i+1,j,k), h_in(i-1,j,k), h_in(i,j,k)) - h_in(i,j,k)
         dMn = h_in(i,j,k) - min(h_in(i+1,j,k), h_in(i-1,j,k), h_in(i,j,k))
         slp(i,j,k) = sign(1.,slp(i,j,k)) * min(abs(slp(i,j,k)), 2. * min(dMx, dMn))
-                ! * (G%mask2dT(i-1,j) * G%mask2dT(i,j) * G%mask2dT(i+1,j))
+                ! * (mask2dT(i-1,j) * mask2dT(i,j) * mask2dT(i+1,j))
       endif
     enddo
 
@@ -2454,10 +2456,10 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
-    ! h_im1 = h_in(i-1,j,k) ; if (G%mask2dT(i-1,j) < 0.5) h_im1 = h_in(i,j)
-    ! h_ip1 = h_in(i+1,j,k) ; if (G%mask2dT(i+1,j) < 0.5) h_ip1 = h_in(i,j)
-      h_im1 = G%mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-G%mask2dT(i-1,j)) * h_in(i,j,k)
-      h_ip1 = G%mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-G%mask2dT(i+1,j)) * h_in(i,j,k)
+    ! h_im1 = h_in(i-1,j,k) ; if (mask2dT(i-1,j) < 0.5) h_im1 = h_in(i,j)
+    ! h_ip1 = h_in(i+1,j,k) ; if (mask2dT(i+1,j) < 0.5) h_ip1 = h_in(i,j)
+      h_im1 = mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-mask2dT(i-1,j)) * h_in(i,j,k)
+      h_ip1 = mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-mask2dT(i+1,j)) * h_in(i,j,k)
       ! Left/right values following Eq. B2 in Lin 1994, MWR (132)
       h_W(i,j,k) = 0.5*( h_im1 + h_in(i,j,k) ) + oneSixth*( slp(i-1,j,k) - slp(i,j,k) )
       h_E(i,j,k) = 0.5*( h_ip1 + h_in(i,j,k) ) + oneSixth*( slp(i,j,k) - slp(i+1,j,k) )
@@ -2499,10 +2501,8 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   call h_E_a%copy2Array(h_E)
 
   if (monotonic) then
-    ! call PPM_limit_CW84(h_in, h_W, h_E, G, isl, iel, jsl, jel)
     call PPM_limit_cw84(bx, h_in_a, h_W_a, h_E_a)
   else
-    ! call PPM_limit_pos(h_in, h_W, h_E, h_min, G, isl, iel, jsl, jel)
     call PPM_limit_pos(bx, h_in_a, h_W_a, h_E_a, h_min)
   endif
 
@@ -2522,7 +2522,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
 end subroutine PPM_reconstruction_x
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalGrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
@@ -2530,6 +2530,8 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
                                                          !! [H ~> m or kg m-2].
   real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out) :: h_N  !< North edge thickness in the reconstruction,
                                                          !! [H ~> m or kg m-2].
+  real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
+                                                           !! on the h-grid [nondim]
   type(cont_loop_bounds_type),       intent(in)  :: LB   !< Active loop bounds structure.
   real,                              intent(in)  :: h_min !< The minimum thickness
                     !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
@@ -2587,14 +2589,14 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
-      h_jm1 = G%mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-G%mask2dT(i,j-1)) * h_in(i,j,k)
-      h_jp1 = G%mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-G%mask2dT(i,j+1)) * h_in(i,j,k)
+      h_jm1 = mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-mask2dT(i,j-1)) * h_in(i,j,k)
+      h_jp1 = mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-mask2dT(i,j+1)) * h_in(i,j,k)
       h_S(i,j,k) = 0.5*( h_jm1 + h_in(i,j,k) )
       h_N(i,j,k) = 0.5*( h_jp1 + h_in(i,j,k) )
     enddo
   else
     do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
-      if ((G%mask2dT(i,j-1) * G%mask2dT(i,j) * G%mask2dT(i,j+1)) == 0.0) then
+      if ((mask2dT(i,j-1) * mask2dT(i,j) * mask2dT(i,j+1)) == 0.0) then
         slp(i,j,k) = 0.0
       else
         ! This uses a simple 2nd order slope.
@@ -2603,7 +2605,7 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
         dMx = max(h_in(i,j+1,k), h_in(i,j-1,k), h_in(i,j,k)) - h_in(i,j,k)
         dMn = h_in(i,j,k) - min(h_in(i,j+1,k), h_in(i,j-1,k), h_in(i,j,k))
         slp(i,j,k) = sign(1.,slp(i,j,k)) * min(abs(slp(i,j,k)), 2. * min(dMx, dMn))
-                ! * (G%mask2dT(i,j-1) * G%mask2dT(i,j) * G%mask2dT(i,j+1))
+                ! * (mask2dT(i,j-1) * mask2dT(i,j) * mask2dT(i,j+1))
       endif
     enddo
 
@@ -2625,8 +2627,8 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
-      h_jm1 = G%mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-G%mask2dT(i,j-1)) * h_in(i,j,k)
-      h_jp1 = G%mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-G%mask2dT(i,j+1)) * h_in(i,j,k)
+      h_jm1 = mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-mask2dT(i,j-1)) * h_in(i,j,k)
+      h_jp1 = mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-mask2dT(i,j+1)) * h_in(i,j,k)
       ! Left/right values following Eq. B2 in Lin 1994, MWR (132)
       h_S(i,j,k) = 0.5*( h_jm1 + h_in(i,j,k) ) + oneSixth*( slp(i,j-1,k) - slp(i,j,k) )
       h_N(i,j,k) = 0.5*( h_jp1 + h_in(i,j,k) ) + oneSixth*( slp(i,j,k) - slp(i,j+1,k) )
@@ -2705,7 +2707,7 @@ subroutine PPM_limit_pos_fortran(bx, h_in_a, h_L_a, h_R_a, h_min)
   real    :: dh    ! The difference between the edge thicknesses             [H ~> m or kg m-2]
   real    :: scale ! A scaling factor to reduce the curvature of the fit               [nondim]
   integer :: i,j,k
-  real, dimension(:,:,:), pointer :: h_in, h_L, h_R  ! pointers to Fortran arrays
+  real, dimension(:,:,:), contiguous, pointer :: h_in, h_L, h_R  ! pointers to Fortran arrays
 
   ! Get the views
   call h_in_a%view(h_in)
@@ -2751,7 +2753,7 @@ subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
   real    :: RLmean   ! The average of the input edge thicknesses                 [H ~> m or kg m-2]
   real    :: FunFac   ! A curious product of the thickness slope and curvature [H2 ~> m2 or kg2 m-4]
   integer :: i, j, k
-  real, dimension(:,:,:), pointer :: h_in, h_L, h_R  ! pointers to Fortran arrays
+  real, dimension(:,:,:), contiguous, pointer :: h_in, h_L, h_R  ! pointers to Fortran arrays
 
   ! Get the views
   call h_in_a%view(h_in)
@@ -2944,7 +2946,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
        case (TIMH_runFORTRAN)
           ! Run Fortran code
           call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
-#ifndef _FMS
+#ifdef _TIM
        case (TIMH_capture)
            ! Call C++ bridge to capture the input state
            call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
@@ -2995,7 +2997,7 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
 
           ! Run Fortran code
           call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
-#ifndef _FMS
+#ifdef _TIM
        case (TIMH_capture)
 
           ! Call C++ bridge to capture the input state
