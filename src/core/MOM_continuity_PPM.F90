@@ -490,8 +490,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   ! Local variables
   type(cont_loop_bounds_type) :: LB
   integer :: i, j, k, ish, ieh, jsh, jeh, nz
-
-  call cpu_clock_begin(id_clock_reconstruct)
+  type(Box_t) :: bx, bxH    
 
   if (present(LB_in)) then
     LB = LB_in
@@ -500,13 +499,22 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   endif
   ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
 
+  ! Define the h-grid iteration space
+  call bxH%alloc(ndims=3)
+  call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
+
+  ! Define a local iteration space expanded one element in the i-dimension
+  bx = bxH%expand(dim=1,n=1)
+
+  call cpu_clock_begin(id_clock_reconstruct)
+
   if (CS%upwind_1st) then
-    !$OMP parallel do default(shared)
-    do k=1,nz ; do j=jsh,jeh ; do i=ish-1,ieh+1
+
+    do concurrent (k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
       h_W(i,j,k) = h_in(i,j,k) ; h_E(i,j,k) = h_in(i,j,k)
-    enddo ; enddo ; enddo
+    enddo
   else
-      call PPM_reconstruction_x(h_in, h_W, h_E, G, GV, G%mask2dT, LB, &
+      call PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, G%mask2dT, LB, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
@@ -534,8 +542,8 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   ! Local variables
   type(cont_loop_bounds_type) :: LB
   integer :: i, j, k, ish, ieh, jsh, jeh, nz
+  type(Box_t)  :: bx, bxH
 
-  call cpu_clock_begin(id_clock_reconstruct)
 
   if (present(LB_in)) then
     LB = LB_in
@@ -544,13 +552,21 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   endif
   ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
 
+  ! Define the h-grid iteration space
+  call bxH%alloc(ndims=3)
+  call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
+
+  ! Define a local iteration space expanded one element in the j-dimension
+  bx = bxH%expand(dim=2,n=1)
+
+  call cpu_clock_begin(id_clock_reconstruct)
+
   if (CS%upwind_1st) then
-    !$OMP parallel do default(shared)
-    do k=1,nz ; do j=jsh-1,jeh+1 ; do i=ish,ieh
+    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
       h_S(i,j,k) = h_in(i,j,k) ; h_N(i,j,k) = h_in(i,j,k)
-    enddo ; enddo ; enddo
+    enddo
   else
-      call PPM_reconstruction_y(h_in, h_S, h_N, G, GV, G%mask2dT, LB, &
+      call PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, G%mask2dT, LB, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
@@ -2351,7 +2367,8 @@ subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, vh_tot_0, dvhdv_tot_0, 
 end subroutine set_merid_BT_cont
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+  type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalgrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
@@ -2393,12 +2410,12 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monot
 
   ! The iteration space
   isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh ; nz = G%ke
-  ! Box that describes the iteration space
-  call bx%alloc(ndims)
-  call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
 
-  ! Create an second box that Extends the iteration space by one in the i-dimension
-  bxE = bx%expand(dim=1,n=1)
+  ! The local iteration box is expanded by one element in the j-dimension 
+  bx = bxH%expand(dim=1,n=1) 
+
+  ! Create an second box that Extends the iteration space by two in the i-dimension
+  bxE = bxH%expand(dim=1,n=2)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
   stencil = 2 ; if (simple_2nd) stencil = 1
@@ -2514,6 +2531,8 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monot
   call h_in_a%free()
   call h_W_a%free()
   call h_E_a%free()
+
+  ! Free up the iteration space boxes
   call bx%free()
   call bxE%free()
 
@@ -2522,7 +2541,8 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monot
 end subroutine PPM_reconstruction_x
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+  type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalGrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
@@ -2566,10 +2586,13 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monot
   ! The iteration space
   isl = LB%ish ; iel = LB%ieh ; jsl = LB%jsh-1 ; jel = LB%jeh+1 ; nz = G%ke
   ! Box that describes the iteration space
-  call bx%alloc(ndims)
-  call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
-  ! Create an second box that Extends the iteration space by one in the j-dimension
-  bxE = bx%expand(dim=2,n=1)
+  !call bx%alloc(ndims)
+  !call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
+  ! Local iteration box extends the h-grid by one element in the j-dimension
+  bx = bxH%expand(dim=2,n=1)
+
+  ! Extended iteration box extends the h-grind by two elements in the j-dimension
+  bxE = bxH%expand(dim=2,n=2)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
   stencil = 2 ; if (simple_2nd) stencil = 1
@@ -2684,6 +2707,8 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monot
   call h_in_a%free()
   call h_S_a%free()
   call h_N_a%free()
+
+  ! Deallocate local iteration boxes
   call bx%free()
   call bxE%free()
 
