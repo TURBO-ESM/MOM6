@@ -490,7 +490,9 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   ! Local variables
   type(cont_loop_bounds_type) :: LB
   integer :: i, j, k, ish, ieh, jsh, jeh, nz
-  type(Box_t) :: bx, bxH    
+  integer :: isl, iel, jsl, jel, stencil
+  type(Box_t) :: bx, bxH
+  character(len=256) :: mesg
 
   if (present(LB_in)) then
     LB = LB_in
@@ -505,6 +507,25 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
 
   ! Define a local iteration space expanded one element in the i-dimension
   bx = bxH%expand(dim=1,n=1)
+
+  ! This is the stencil of the reconstruction, not the scheme overall.
+  stencil = 2 ; if (CS%simple_2nd) stencil = 1
+
+  ! Check see if the x and y-halo are sufficient before attempting
+  ! to call PPM_reconstruction_x 
+  isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
+  if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
+    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
+               & "x-halo that needs to be increased by ",i2,".")') &
+               stencil + max(G%isd-isl,iel-G%ied)
+    call MOM_error(FATAL,mesg)
+  endif
+  if ((jsl < G%jsd) .or. (jel > G%jed)) then
+    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
+               & "y-halo that needs to be increased by ",i2,".")') &
+               max(G%jsd-jsl,jel-G%jed)
+    call MOM_error(FATAL,mesg)
+  endif
 
   call cpu_clock_begin(id_clock_reconstruct)
 
@@ -542,7 +563,9 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   ! Local variables
   type(cont_loop_bounds_type) :: LB
   integer :: i, j, k, ish, ieh, jsh, jeh, nz
+  integer :: isl,iel,jsl,jel, stencil
   type(Box_t)  :: bx, bxH
+  character(len=256) :: mesg
 
 
   if (present(LB_in)) then
@@ -558,6 +581,22 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
 
   ! Define a local iteration space expanded one element in the j-dimension
   bx = bxH%expand(dim=2,n=1)
+
+  ! Check see if the x and y-halo are sufficient before attempting
+  ! to call PPM_reconstruction_x 
+  isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
+  if ((isl < G%isd) .or. (iel > G%ied)) then
+    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
+               & "x-halo that needs to be increased by ",i2,".")') &
+               max(G%isd-isl,iel-G%ied)
+    call MOM_error(FATAL,mesg)
+  endif
+  if ((jsl-stencil < G%jsd) .or. (jel+stencil > G%jed)) then
+    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
+                 & "y-halo that needs to be increased by ",i2,".")') &
+                 stencil + max(G%jsd-jsl,jel-G%jed)
+    call MOM_error(FATAL,mesg)
+  endif
 
   call cpu_clock_begin(id_clock_reconstruct)
 
@@ -2395,7 +2434,7 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
   real :: h_ip1, h_im1 ! Neighboring thicknesses or sensibly extrapolated values [H ~> m or kg m-2]
   real :: dMx, dMn     ! The difference between the local thickness and the maximum (dMx) or
                        ! minimum (dMn) of the surrounding values [H ~> m or kg m-2]
-  character(len=256) :: mesg
+  ! character(len=256) :: mesg
   integer :: i, j, k, isl, iel, jsl, jel, nz, n, stencil
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
@@ -2411,27 +2450,27 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
   ! The iteration space
   isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh ; nz = G%ke
 
-  ! The local iteration box is expanded by one element in the j-dimension 
-  bx = bxH%expand(dim=1,n=1) 
+  ! The local iteration box is expanded by one element in the j-dimension
+  bx = bxH%expand(dim=1,n=1)
 
-  ! Create an second box that Extends the iteration space by two in the i-dimension
+  ! Create an second box that extent the iteration space by two in the i-dimension
   bxE = bxH%expand(dim=1,n=2)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
-  stencil = 2 ; if (simple_2nd) stencil = 1
-
-  if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-               & "x-halo that needs to be increased by ",i2,".")') &
-               stencil + max(G%isd-isl,iel-G%ied)
-    call MOM_error(FATAL,mesg)
-  endif
-  if ((jsl < G%jsd) .or. (jel > G%jed)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-               & "y-halo that needs to be increased by ",i2,".")') &
-               max(G%jsd-jsl,jel-G%jed)
-    call MOM_error(FATAL,mesg)
-  endif
+  !stencil = 2 ; if (simple_2nd) stencil = 1
+  !
+  !if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
+  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
+  !             & "x-halo that needs to be increased by ",i2,".")') &
+  !             stencil + max(G%isd-isl,iel-G%ied)
+  !  call MOM_error(FATAL,mesg)
+  !endif
+  !if ((jsl < G%jsd) .or. (jel > G%jed)) then
+  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
+  !             & "y-halo that needs to be increased by ",i2,".")') &
+  !             max(G%jsd-jsl,jel-G%jed)
+  !  call MOM_error(FATAL,mesg)
+  !endif
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
@@ -2595,20 +2634,20 @@ subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, 
   bxE = bxH%expand(dim=2,n=2)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
-  stencil = 2 ; if (simple_2nd) stencil = 1
-
-  if ((isl < G%isd) .or. (iel > G%ied)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-               & "x-halo that needs to be increased by ",i2,".")') &
-               max(G%isd-isl,iel-G%ied)
-    call MOM_error(FATAL,mesg)
-  endif
-  if ((jsl-stencil < G%jsd) .or. (jel+stencil > G%jed)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-                 & "y-halo that needs to be increased by ",i2,".")') &
-                 stencil + max(G%jsd-jsl,jel-G%jed)
-    call MOM_error(FATAL,mesg)
-  endif
+  !stencil = 2 ; if (simple_2nd) stencil = 1
+  !
+  !if ((isl < G%isd) .or. (iel > G%ied)) then
+  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
+  !             & "x-halo that needs to be increased by ",i2,".")') &
+  !             max(G%isd-isl,iel-G%ied)
+  !  call MOM_error(FATAL,mesg)
+  !endif
+  !if ((jsl-stencil < G%jsd) .or. (jel+stencil > G%jed)) then
+  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
+  !               & "y-halo that needs to be increased by ",i2,".")') &
+  !               stencil + max(G%jsd-jsl,jel-G%jed)
+  !  call MOM_error(FATAL,mesg)
+  !endif
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
@@ -2693,10 +2732,8 @@ subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, 
   call h_N_a%copy2Array(h_N)
 
   if (monotonic) then
-    ! call PPM_limit_CW84(h_in, h_S, h_N, G, isl, iel, jsl, jel)
     call PPM_limit_cw84(bx, h_in_a, h_S_a, h_N_a)
   else
-    ! call PPM_limit_pos(h_in, h_S, h_N, h_min, G, isl, iel, jsl, jel)
     call PPM_limit_pos(bx, h_in_a, h_S_a, h_N_a, h_min)
   endif
   ! Copy data back to Fortran arrays
