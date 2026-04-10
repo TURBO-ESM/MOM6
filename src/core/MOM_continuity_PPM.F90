@@ -512,7 +512,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   stencil = 2 ; if (CS%simple_2nd) stencil = 1
 
   ! Check see if the x and y-halo are sufficient before attempting
-  ! to call PPM_reconstruction_x 
+  ! to call PPM_reconstruction_x
   isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
   if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
     write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
@@ -583,7 +583,8 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   bx = bxH%expand(dim=2,n=1)
 
   ! Check see if the x and y-halo are sufficient before attempting
-  ! to call PPM_reconstruction_x 
+  ! to call PPM_reconstruction_x
+  stencil = 2 ; if (CS%simple_2nd) stencil = 1
   isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
   if ((isl < G%isd) .or. (iel > G%ied)) then
     write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
