@@ -2381,7 +2381,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
   integer, parameter :: ndims = 3
-  type(Box_t) :: bx
+  type(Box_t) :: bx, bxE
   type(RealArray_t) :: h_in_a, h_W_a, h_E_a
 
   local_open_BC = .false.
@@ -2396,7 +2396,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
 
   ! Extend the iteration space by one in the i-dimension
-  !bxE = bx%expand(dim=1,n=1)
+  bxE = bx%expand(dim=1,n=1)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
   stencil = 2 ; if (simple_2nd) stencil = 1
@@ -2415,16 +2415,14 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   endif
 
   if (simple_2nd) then
-    do k=1,nz; do j=jsl,jel ; do i=isl,iel
-    !do j=bx%idxS(2),bx%idxE(2) ; do i=bx%idxS(1), bx%idxE(1)  ! Local box (bx)
+    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
       h_im1 = G%mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-G%mask2dT(i-1,j)) * h_in(i,j,k)
       h_ip1 = G%mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-G%mask2dT(i+1,j)) * h_in(i,j,k)
       h_W(i,j,k) = 0.5*( h_im1 + h_in(i,j,k) )
       h_E(i,j,k) = 0.5*( h_ip1 + h_in(i,j,k) )
-    enddo ; enddo ; enddo
+    enddo
   else
-    do k=1,nz; do j=jsl,jel ; do i=isl-1,iel+1
-    !do j=bxE%idxS(2),bxE%idxE(2) ; do i=bxE%idxS(1), bxE%idxE(1)  ! Expanded box (bxE)
+    do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
       if ((G%mask2dT(i-1,j) * G%mask2dT(i,j) * G%mask2dT(i+1,j)) == 0.0) then
         slp(i,j,k) = 0.0
       else
@@ -2436,7 +2434,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
         slp(i,j,k) = sign(1.,slp(i,j,k)) * min(abs(slp(i,j,k)), 2. * min(dMx, dMn))
                 ! * (G%mask2dT(i-1,j) * G%mask2dT(i,j) * G%mask2dT(i+1,j))
       endif
-    enddo ; enddo ; enddo
+    enddo
 
     if (local_open_BC) then
       do n=1, OBC%number_of_segments
@@ -2445,16 +2443,15 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
         if (segment%direction == OBC_DIRECTION_E .or. &
             segment%direction == OBC_DIRECTION_W) then
           I=segment%HI%IsdB
-          do k=1,nz; do j=segment%HI%jsd,segment%HI%jed
+          do concurrent(k=bx%idxS(3):bx%idxE(3),j=segment%HI%jsd:segment%HI%jed)
             slp(i+1,j,k) = 0.0
             slp(i,j,k) = 0.0
-          enddo ; enddo
+          enddo
         endif
       enddo
     endif
 
-    !do j=bx%idxS(2),bx%idxE(2) ; do i=bx%idxS(1), bx%idxE(1)
-    do k=1,nz; do j=jsl,jel ; do i=isl,iel
+    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
     ! h_im1 = h_in(i-1,j,k) ; if (G%mask2dT(i-1,j) < 0.5) h_im1 = h_in(i,j)
@@ -2464,7 +2461,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
       ! Left/right values following Eq. B2 in Lin 1994, MWR (132)
       h_W(i,j,k) = 0.5*( h_im1 + h_in(i,j,k) ) + oneSixth*( slp(i-1,j,k) - slp(i,j,k) )
       h_E(i,j,k) = 0.5*( h_ip1 + h_in(i,j,k) ) + oneSixth*( slp(i,j,k) - slp(i+1,j,k) )
-    enddo ; enddo ; enddo
+    enddo
   endif
 
   if (local_open_BC) then
@@ -2473,20 +2470,20 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
       if (.not. segment%on_pe) cycle
       if (segment%direction == OBC_DIRECTION_E) then
         I=segment%HI%IsdB
-        do k=1,nz; do j=segment%HI%jsd,segment%HI%jed
+        do concurrent(k=bx%idxS(3):bx%idxE(3),j=segment%HI%jsd:segment%HI%jed)
           h_W(i+1,j,k) = h_in(i,j,k)
           h_E(i+1,j,k) = h_in(i,j,k)
           h_W(i,j,k) = h_in(i,j,k)
           h_E(i,j,k) = h_in(i,j,k)
-        enddo ; enddo
+        enddo
       elseif (segment%direction == OBC_DIRECTION_W) then
         I=segment%HI%IsdB
-        do k=1,nz; do j=segment%HI%jsd,segment%HI%jed
+        do concurrent(k=bx%idxS(3):bx%idxE(3),j=segment%HI%jsd:segment%HI%jed)
           h_W(i,j,k) = h_in(i+1,j,k)
           h_E(i,j,k) = h_in(i+1,j,k)
           h_W(i+1,j,k) = h_in(i+1,j,k)
           h_E(i+1,j,k) = h_in(i+1,j,k)
-        enddo ; enddo
+        enddo
       endif
     enddo
   endif
@@ -2518,7 +2515,7 @@ subroutine PPM_reconstruction_x(h_in, h_W, h_E, G, GV, LB, h_min, monotonic, sim
   call h_W_a%free()
   call h_E_a%free()
   call bx%free()
-  !call bxE%free()
+  call bxE%free()
 
   return
 
@@ -2588,16 +2585,14 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
   endif
 
   if (simple_2nd) then
-    ! do j=bx%idxS(2),bx%idxE(2) ; do i=bx%idxS(1), bx%idxE(1)
-    do k=1,nz ; do j=jsl,jel ; do i=isl,iel
+    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
       h_jm1 = G%mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-G%mask2dT(i,j-1)) * h_in(i,j,k)
       h_jp1 = G%mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-G%mask2dT(i,j+1)) * h_in(i,j,k)
       h_S(i,j,k) = 0.5*( h_jm1 + h_in(i,j,k) )
       h_N(i,j,k) = 0.5*( h_jp1 + h_in(i,j,k) )
-    enddo ; enddo ; enddo
+    enddo
   else
-    do k=1,nz ;do j=jsl-1,jel+1 ; do i=isl,iel
-    ! do j=bxE%idxS(2),bxE%idxE(2) ; do i=bxE%idxS(1), bxE%idxE(1)  ! Expanded box (bxE)
+    do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
       if ((G%mask2dT(i,j-1) * G%mask2dT(i,j) * G%mask2dT(i,j+1)) == 0.0) then
         slp(i,j,k) = 0.0
       else
@@ -2609,7 +2604,7 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
         slp(i,j,k) = sign(1.,slp(i,j,k)) * min(abs(slp(i,j,k)), 2. * min(dMx, dMn))
                 ! * (G%mask2dT(i,j-1) * G%mask2dT(i,j) * G%mask2dT(i,j+1))
       endif
-    enddo ; enddo ; enddo
+    enddo
 
     if (local_open_BC) then
       do n=1, OBC%number_of_segments
@@ -2618,16 +2613,15 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
         if (segment%direction == OBC_DIRECTION_S .or. &
             segment%direction == OBC_DIRECTION_N) then
           J=segment%HI%JsdB
-          do k = 1,nz ; do i=segment%HI%isd,segment%HI%ied
+          do concurrent(k=bx%idxS(3):bx%idxE(3),i=segment%HI%isd:segment%HI%ied)
             slp(i,j+1,k) = 0.0
             slp(i,j,k) = 0.0
-            enddo ; enddo
+          enddo
         endif
       enddo
     endif
 
-    do k=1,nz ; do j=jsl,jel ; do i=isl,iel
-    !do j=bx%idxS(2),bx%idxE(2) ; do i=bx%idxS(1), bx%idxE(1)
+    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
       h_jm1 = G%mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-G%mask2dT(i,j-1)) * h_in(i,j,k)
@@ -2635,7 +2629,7 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
       ! Left/right values following Eq. B2 in Lin 1994, MWR (132)
       h_S(i,j,k) = 0.5*( h_jm1 + h_in(i,j,k) ) + oneSixth*( slp(i,j-1,k) - slp(i,j,k) )
       h_N(i,j,k) = 0.5*( h_jp1 + h_in(i,j,k) ) + oneSixth*( slp(i,j,k) - slp(i,j+1,k) )
-    enddo ; enddo ; enddo
+    enddo
   endif
 
   if (local_open_BC) then
@@ -2644,20 +2638,20 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
       if (.not. segment%on_pe) cycle
       if (segment%direction == OBC_DIRECTION_N) then
         J=segment%HI%JsdB
-        do k=1,nz ; do i=segment%HI%isd,segment%HI%ied
+        do concurrent(k=bx%idxS(3):bx%idxE(3),i=segment%HI%isd:segment%HI%ied)
           h_S(i,j+1,k) = h_in(i,j,k)
           h_N(i,j+1,k) = h_in(i,j,k)
           h_S(i,j,k) = h_in(i,j,k)
           h_N(i,j,k) = h_in(i,j,k)
-          enddo ; enddo
+        enddo
       elseif (segment%direction == OBC_DIRECTION_S) then
         J=segment%HI%JsdB
-        do k=1,nz ; do i=segment%HI%isd,segment%HI%ied
+        do concurrent(k=bx%idxS(3):bx%idxE(3),i=segment%HI%isd:segment%HI%ied)
           h_S(i,j,k) = h_in(i,j+1,k)
           h_N(i,j,k) = h_in(i,j+1,k)
           h_S(i,j+1,k) = h_in(i,j+1,k)
           h_N(i,j+1,k) = h_in(i,j+1,k)
-        enddo ; enddo
+        enddo
       endif
     enddo
   endif
@@ -2688,7 +2682,7 @@ subroutine PPM_reconstruction_y(h_in, h_S, h_N, G, GV, LB, h_min, monotonic, sim
   call h_S_a%free()
   call h_N_a%free()
   call bx%free()
-  ! call bxE%free()
+  call bxE%free()
 
   return
 end subroutine PPM_reconstruction_y
@@ -2717,9 +2711,7 @@ subroutine PPM_limit_pos_fortran(bx, h_in_a, h_L_a, h_R_a, h_min)
   call h_L_a%view(h_L)
   call h_R_a%view(h_R)
 
-  do k=bx%idxS(3),bx%idxE(3)
-  do j=bx%idxS(2),bx%idxE(2)
-  do i=bx%idxS(1),bx%idxE(1)
+  do concurrent (k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
     ! This limiter prevents undershooting minima within the domain with
     ! values less than h_min.
     curv = 3.0*((h_L(i,j,k) + h_R(i,j,k)) - 2.0*h_in(i,j,k))
@@ -2737,7 +2729,7 @@ subroutine PPM_limit_pos_fortran(bx, h_in_a, h_L_a, h_R_a, h_min)
         endif
       endif
     endif
-  enddo ; enddo ; enddo
+  enddo
 
 end subroutine PPM_limit_pos_fortran
 
@@ -2765,9 +2757,7 @@ subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
   call h_L_a%view(h_L)
   call h_R_a%view(h_R)
 
-  do k=bx%idxS(3),bx%idxE(3)
-  do j=bx%idxS(2),bx%idxE(2)
-  do i=bx%idxS(1),bx%idxE(1)
+  do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
     ! This limiter monotonizes the parabola following
     ! Colella and Woodward, 1984, Eq. 1.10
     h_i = h_in(i,j,k)
@@ -2781,7 +2771,7 @@ subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
       if ( FunFac >  RLdiff2 ) h_L(i,j,k) = 3. * h_i - 2. * h_R(i,j,k)
       if ( FunFac < -RLdiff2 ) h_R(i,j,k) = 3. * h_i - 2. * h_L(i,j,k)
     endif
-  enddo ; enddo ; enddo
+  enddo 
 
   return
 end subroutine PPM_limit_CW84_fortran
