@@ -610,25 +610,25 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   else
       ! Duplicate the arrays
       call h_in_a%dup(h_in)
-      !call h_S_a%dup(h_S)
-      !call h_N_a%dup(h_N)
+      call h_S_a%dup(h_S)
+      call h_N_a%dup(h_N)
       call mask2dT_a%dup(G%mask2dT)
 
       ! Copy data into array containers
       call h_in_a%copy2Array(h_in)
       call mask2dT_a%copy2Array(G%mask2dT)
-      call PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, &
+      call PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
-      !call h_S_a%copy2F(h_S)
-      !call h_N_a%copy2F(h_N)
+      call h_S_a%copy2F(h_S)
+      call h_N_a%copy2F(h_N)
   endif
 
   call cpu_clock_end(id_clock_reconstruct)
 
   ! Free up temporary containers
   call h_in_a%free()
-  !call h_S_a%free()
-  !call h_N_a%free()
+  call h_S_a%free()
+  call h_N_a%free()
   call mask2dT_a%free()
 
 end subroutine meridional_edge_thickness
@@ -2580,17 +2580,16 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, mono
 end subroutine PPM_reconstruction_x
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
   type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalGrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(out) :: h_S  !< South edge thickness in the reconstruction,
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out)   :: h_N  !< North edge thickness in the reconstruction,
-  !real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
-  type(RealArray_t),  intent(in)  :: h_in_a !< Layer thickness [H ~> m or kg m-2].
-  !type(RealArray_t),  intent(out) :: h_S_a  !< South edge thickness in the reconstruction 
+  !real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(out) :: h_S  !< South edge thickness in the reconstruction,
+  !real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out)   :: h_N  !< North edge thickness in the reconstruction,
+  type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
+  type(RealArray_t),  intent(inout) :: h_S_a  !< South edge thickness in the reconstruction 
                                             !! [H ~> m or kg m-2].
-  !type(RealArray_t),  intent(out) :: h_N_a  !< North edge thickness in the reconstruction,
+  type(RealArray_t),  intent(inout) :: h_N_a  !< North edge thickness in the reconstruction,
                                             !! [H ~> m or kg m-2].
   type(RealArray_t), intent(in)  :: mask2dT_a !< 0 for land points and 1 for ocean points
                                               !! on the h-grid [nondim]
@@ -2616,20 +2615,19 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, h_min, 
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
 
-  type(RealArray_t) h_S_a
-  type(RealArray_t) h_N_a
-  !real, dimension(:,:,:), contiguous, pointer :: h_in, h_S, h_N, slp
+  !type(RealArray_t) h_S_a
+  !type(RealArray_t) h_N_a
   real, dimension(:,:),   contiguous, pointer :: mask2dT
   real, dimension(:,:,:), contiguous, pointer :: h_in
-  !real, dimension(:,:,:), contiguous, pointer :: h_S
-  !real, dimension(:,:,:), contiguous, pointer :: h_N
+  real, dimension(:,:,:), contiguous, pointer :: h_S
+  real, dimension(:,:,:), contiguous, pointer :: h_N
 
   integer, parameter :: ndims = 3
   type(Box_t) :: bx, bxE
 
   ! Get the views for containers (subroutine arguments)
-  !call h_S_a%view(h_S)
-  !call h_N_a%view(h_N)
+  call h_S_a%view(h_S)
+  call h_N_a%view(h_N)
   call h_in_a%view(h_in)
   call mask2dT_a%view(mask2dT)
 
@@ -2722,12 +2720,12 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, h_min, 
 #endif
 
   ! Duplicate the arrays
-  call h_S_a%dup(h_S)
-  call h_N_a%dup(h_N)
+  !call h_S_a%dup(h_S)
+  !call h_N_a%dup(h_N)
 
   ! Copy data into array containers
-  call h_S_a%copy2Array(h_S)
-  call h_N_a%copy2Array(h_N)
+  !call h_S_a%copy2Array(h_S)
+  !call h_N_a%copy2Array(h_N)
 
   if (monotonic) then
     call PPM_limit_cw84(bx, h_in_a, h_S_a, h_N_a)
@@ -2736,12 +2734,12 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, h_min, 
   endif
 
   ! Copy data back to Fortran arrays
-  call h_S_a%copy2F(h_S)
-  call h_N_a%copy2F(h_N)
+  !call h_S_a%copy2F(h_S)
+  !call h_N_a%copy2F(h_N)
 
   ! Free up temporary containers
-  call h_S_a%free()
-  call h_N_a%free()
+  !call h_S_a%free()
+  !call h_N_a%free()
 
   ! Deallocate local temporaries
   !call slp_a%free()
