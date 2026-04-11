@@ -1,3 +1,4 @@
+#undef _ORIG
 #undef _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
@@ -535,7 +536,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
       h_W(i,j,k) = h_in(i,j,k) ; h_E(i,j,k) = h_in(i,j,k)
     enddo
   else
-      call PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, G%mask2dT, LB, &
+      call PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, G%mask2dT, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
@@ -566,6 +567,7 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   integer :: isl,iel,jsl,jel, stencil
   type(Box_t)  :: bx, bxH
   character(len=256) :: mesg
+  type(RealArray_t) :: h_in_a, h_S_a, h_N_a, mask2dT_a
 
 
   if (present(LB_in)) then
@@ -606,11 +608,28 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
       h_S(i,j,k) = h_in(i,j,k) ; h_N(i,j,k) = h_in(i,j,k)
     enddo
   else
-      call PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, G%mask2dT, LB, &
+      ! Duplicate the arrays
+      call h_in_a%dup(h_in)
+      !call h_S_a%dup(h_S)
+      !call h_N_a%dup(h_N)
+      call mask2dT_a%dup(G%mask2dT)
+
+      ! Copy data into array containers
+      call h_in_a%copy2Array(h_in)
+      call mask2dT_a%copy2Array(G%mask2dT)
+      call PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
+      !call h_S_a%copy2F(h_S)
+      !call h_N_a%copy2F(h_N)
   endif
 
   call cpu_clock_end(id_clock_reconstruct)
+
+  ! Free up temporary containers
+  call h_in_a%free()
+  !call h_S_a%free()
+  !call h_N_a%free()
+  call mask2dT_a%free()
 
 end subroutine meridional_edge_thickness
 
@@ -2407,7 +2426,7 @@ subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, vh_tot_0, dvhdv_tot_0, 
 end subroutine set_merid_BT_cont
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, monotonic, simple_2nd, OBC)
   type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalgrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure
@@ -2418,7 +2437,6 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
                                                          !! [H ~> m or kg m-2].
   real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
                                                            !! on the h-grid [nondim]
-  type(cont_loop_bounds_type),       intent(in)  :: LB   !< Active loop bounds structure.
   real,                              intent(in)  :: h_min !< The minimum thickness
                     !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
   logical,                           intent(in)  :: monotonic !< If true, use the
@@ -2435,8 +2453,8 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
   real :: h_ip1, h_im1 ! Neighboring thicknesses or sensibly extrapolated values [H ~> m or kg m-2]
   real :: dMx, dMn     ! The difference between the local thickness and the maximum (dMx) or
                        ! minimum (dMn) of the surrounding values [H ~> m or kg m-2]
-  ! character(len=256) :: mesg
-  integer :: i, j, k, isl, iel, jsl, jel, nz, n, stencil
+  integer :: i, j, k
+  integer :: n
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
   integer, parameter :: ndims = 3
@@ -2448,30 +2466,11 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
     local_open_BC = OBC%open_u_BCs_exist_globally
   endif
 
-  ! The iteration space
-  isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh ; nz = G%ke
-
   ! The local iteration box is expanded by one element in the j-dimension
   bx = bxH%expand(dim=1,n=1)
 
   ! Create an second box that extent the iteration space by two in the i-dimension
   bxE = bxH%expand(dim=1,n=2)
-
-  ! This is the stencil of the reconstruction, not the scheme overall.
-  !stencil = 2 ; if (simple_2nd) stencil = 1
-  !
-  !if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
-  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-  !             & "x-halo that needs to be increased by ",i2,".")') &
-  !             stencil + max(G%isd-isl,iel-G%ied)
-  !  call MOM_error(FATAL,mesg)
-  !endif
-  !if ((jsl < G%jsd) .or. (jel > G%jed)) then
-  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-  !             & "y-halo that needs to be increased by ",i2,".")') &
-  !             max(G%jsd-jsl,jel-G%jed)
-  !  call MOM_error(FATAL,mesg)
-  !endif
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
@@ -2581,19 +2580,21 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, LB, h_min, 
 end subroutine PPM_reconstruction_x
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_y(bxH, h_in_a, h_S, h_N, G, GV, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
   type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
   type(verticalGrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h_in !< Layer thickness [H ~> m or kg m-2].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(out) :: h_S  !< South edge thickness in the reconstruction,
-                                                         !! [H ~> m or kg m-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out) :: h_N  !< North edge thickness in the reconstruction,
-                                                         !! [H ~> m or kg m-2].
-  real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
-                                                           !! on the h-grid [nondim]
-  type(cont_loop_bounds_type),       intent(in)  :: LB   !< Active loop bounds structure.
-  real,                              intent(in)  :: h_min !< The minimum thickness
+  real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out)   :: h_N  !< North edge thickness in the reconstruction,
+  !real, dimension(SZI_(g),SZJ_(G)), intent(in)  :: mask2dT !< 0 for land points and 1 for ocean points
+  type(RealArray_t),  intent(in)  :: h_in_a !< Layer thickness [H ~> m or kg m-2].
+  !type(RealArray_t),  intent(out) :: h_S_a  !< South edge thickness in the reconstruction 
+                                            !! [H ~> m or kg m-2].
+  !type(RealArray_t),  intent(out) :: h_N_a  !< North edge thickness in the reconstruction,
+                                            !! [H ~> m or kg m-2].
+  type(RealArray_t), intent(in)  :: mask2dT_a !< 0 for land points and 1 for ocean points
+                                              !! on the h-grid [nondim]
+  real,                             intent(in)  :: h_min   !< The minimum thickness
                     !! that can be obtained by a concave parabolic fit [H ~> m or kg m-2]
   logical,                           intent(in)  :: monotonic !< If true, use the
                     !! Colella & Woodward monotonic limiter.
@@ -2605,50 +2606,43 @@ subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, 
 
   ! Local variables with useful mnemonic names.
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV))  :: slp ! The slopes per grid point [H ~> m or kg m-2]
+
   real, parameter :: oneSixth = 1./6.      ! [nondim]
   real :: h_jp1, h_jm1 ! Neighboring thicknesses or sensibly extrapolated values [H ~> m or kg m-2]
   real :: dMx, dMn     ! The difference between the local thickness and the maximum (dMx) or
                        ! minimum (dMn) of the surrounding values [H ~> m or kg m-2]
-  character(len=256) :: mesg
-  integer :: i, j, k, isl, iel, jsl, jel, nz, n, stencil
+  integer :: i, j, k
+  integer :: n
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
 
+  type(RealArray_t) h_S_a
+  type(RealArray_t) h_N_a
+  !real, dimension(:,:,:), contiguous, pointer :: h_in, h_S, h_N, slp
+  real, dimension(:,:),   contiguous, pointer :: mask2dT
+  real, dimension(:,:,:), contiguous, pointer :: h_in
+  !real, dimension(:,:,:), contiguous, pointer :: h_S
+  !real, dimension(:,:,:), contiguous, pointer :: h_N
+
   integer, parameter :: ndims = 3
   type(Box_t) :: bx, bxE
-  type(RealArray_t) :: h_in_a, h_S_a, H_N_a
+
+  ! Get the views for containers (subroutine arguments)
+  !call h_S_a%view(h_S)
+  !call h_N_a%view(h_N)
+  call h_in_a%view(h_in)
+  call mask2dT_a%view(mask2dT)
 
   local_open_BC = .false.
   if (associated(OBC)) then
     local_open_BC = OBC%open_v_BCs_exist_globally
   endif
 
-  ! The iteration space
-  isl = LB%ish ; iel = LB%ieh ; jsl = LB%jsh-1 ; jel = LB%jeh+1 ; nz = G%ke
-  ! Box that describes the iteration space
-  !call bx%alloc(ndims)
-  !call bx%set(idxS=[isl,jsl,1],idxE=[iel,jel,nz])
   ! Local iteration box extends the h-grid by one element in the j-dimension
   bx = bxH%expand(dim=2,n=1)
 
-  ! Extended iteration box extends the h-grind by two elements in the j-dimension
+  ! Extended iteration box extends the h-grid by two elements in the j-dimension
   bxE = bxH%expand(dim=2,n=2)
-
-  ! This is the stencil of the reconstruction, not the scheme overall.
-  !stencil = 2 ; if (simple_2nd) stencil = 1
-  !
-  !if ((isl < G%isd) .or. (iel > G%ied)) then
-  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-  !             & "x-halo that needs to be increased by ",i2,".")') &
-  !             max(G%isd-isl,iel-G%ied)
-  !  call MOM_error(FATAL,mesg)
-  !endif
-  !if ((jsl-stencil < G%jsd) .or. (jel+stencil > G%jed)) then
-  !  write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-  !               & "y-halo that needs to be increased by ",i2,".")') &
-  !               stencil + max(G%jsd-jsl,jel-G%jed)
-  !  call MOM_error(FATAL,mesg)
-  !endif
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
@@ -2722,13 +2716,16 @@ subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, 
     enddo
   endif
 
+#ifdef _ORIG
+  !call h_in_a%dup(h_in)
+  !call h_in_a%copy2Array(h_in)
+#endif
+
   ! Duplicate the arrays
-  call h_in_a%dup(h_in)
   call h_S_a%dup(h_S)
   call h_N_a%dup(h_N)
 
   ! Copy data into array containers
-  call h_in_a%copy2Array(h_in)
   call h_S_a%copy2Array(h_S)
   call h_N_a%copy2Array(h_N)
 
@@ -2737,14 +2734,17 @@ subroutine PPM_reconstruction_y(bxH, h_in, h_S, h_N, G, GV, mask2dT, LB, h_min, 
   else
     call PPM_limit_pos(bx, h_in_a, h_S_a, h_N_a, h_min)
   endif
+
   ! Copy data back to Fortran arrays
   call h_S_a%copy2F(h_S)
   call h_N_a%copy2F(h_N)
 
   ! Free up temporary containers
-  call h_in_a%free()
   call h_S_a%free()
   call h_N_a%free()
+
+  ! Deallocate local temporaries
+  !call slp_a%free()
 
   ! Deallocate local iteration boxes
   call bx%free()
