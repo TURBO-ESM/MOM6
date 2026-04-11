@@ -1,4 +1,3 @@
-#undef _ORIG
 #undef _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
@@ -18,7 +17,7 @@ use MOM_verticalGrid, only : verticalGrid_type
 
 use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
-use iso_c_binding, only : c_double, c_int, c_ptr, c_loc
+use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_ptr
 use TIM_helperF, only : getenv_mode
 use TIM_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
           TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN
@@ -64,6 +63,30 @@ implicit none ; private
       integer(c_int), intent(in) :: mode        !< Execution mode of the bridg
 
     end subroutine ppm_limit_cw84_bridge
+  end interface
+
+  interface
+    !> Bridge for the PPM_reconstruction_y subroutine
+    subroutine ppm_reconstruction_y_bridge(bx, h_in, h_S, h_N, mask2dT, &
+                                           h_min, monotonic, simple_2nd, obc, mode) bind(C)
+      use iso_c_binding
+      use array_mod, only : RealArray_c
+      use box_mod,   only : Box_c
+      implicit none
+
+      type(Box_C), intent(in)           :: bx         !< Index space over which to iterate
+      type(RealArray_C), intent(in)     :: h_in       !< Layer thickness
+      type(RealArray_C), intent(inout)  :: h_S        !< South edge thickness
+      type(RealArray_C), intent(inout)  :: h_N        !< North edge thickness
+      type(RealArray_C), intent(in)     :: mask2dT    !< Mask (0 land, 1 ocean)
+
+      real(c_double), intent(in)        :: h_min      !< Minimum thickness
+      integer(c_int), intent(in)        :: monotonic  !< Use CW84 limiter
+      integer(c_int), intent(in)        :: simple_2nd !< Use 2nd order scheme
+      type(c_ptr),    intent(in)        :: obc        !< OBC pointer [FIXME: add support for OBC pointer]
+      integer(c_int), intent(in)        :: mode       !< Execution mode of the bridge
+
+    end subroutine ppm_reconstruction_y_bridge
   end interface
 
 
@@ -617,7 +640,9 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
       ! Copy data into array containers
       call h_in_a%copy2Array(h_in)
       call mask2dT_a%copy2Array(G%mask2dT)
-      call PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, &
+
+      ! Calculate the reconstruction
+      call PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
       call h_S_a%copy2F(h_S)
       call h_N_a%copy2F(h_N)
@@ -630,6 +655,10 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   call h_S_a%free()
   call h_N_a%free()
   call mask2dT_a%free()
+
+  ! Free up iteration space boxes
+  call bx%free()
+  call bxH%free()
 
 end subroutine meridional_edge_thickness
 
@@ -2580,12 +2609,8 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, mono
 end subroutine PPM_reconstruction_x
 
 !> Calculates left/right edge values for PPM reconstruction.
-subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+subroutine PPM_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
   type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
-  type(ocean_grid_type),             intent(in)  :: G    !< Ocean's grid structure.
-  type(verticalGrid_type),           intent(in)  :: GV   !< Ocean's vertical grid structure.
-  !real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(out) :: h_S  !< South edge thickness in the reconstruction,
-  !real, dimension(SZI_(G),SZJ_(G),SZK_(G)),  intent(out)   :: h_N  !< North edge thickness in the reconstruction,
   type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
   type(RealArray_t),  intent(inout) :: h_S_a  !< South edge thickness in the reconstruction 
                                             !! [H ~> m or kg m-2].
@@ -2604,25 +2629,23 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, h_m
   type(ocean_OBC_type),              pointer     :: OBC !< Open boundaries control structure.
 
   ! Local variables with useful mnemonic names.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV))  :: slp ! The slopes per grid point [H ~> m or kg m-2]
+  !real, dimension(SZI_(G),SZJ_(G),SZK_(GV))  :: slp ! The slopes per grid point [H ~> m or kg m-2]
+  real, dimension(:,:,:), allocatable  :: slp ! The slopes per grid point [H ~> m or kg m-2]
 
   real, parameter :: oneSixth = 1./6.      ! [nondim]
   real :: h_jp1, h_jm1 ! Neighboring thicknesses or sensibly extrapolated values [H ~> m or kg m-2]
   real :: dMx, dMn     ! The difference between the local thickness and the maximum (dMx) or
                        ! minimum (dMn) of the surrounding values [H ~> m or kg m-2]
   integer :: i, j, k
-  integer :: n
+  integer :: n, ndims
   logical :: local_open_BC
   type(OBC_segment_type), pointer :: segment => NULL()
 
-  !type(RealArray_t) h_S_a
-  !type(RealArray_t) h_N_a
   real, dimension(:,:),   contiguous, pointer :: mask2dT
   real, dimension(:,:,:), contiguous, pointer :: h_in
   real, dimension(:,:,:), contiguous, pointer :: h_S
   real, dimension(:,:,:), contiguous, pointer :: h_N
 
-  integer, parameter :: ndims = 3
   type(Box_t) :: bx, bxE
 
   ! Get the views for containers (subroutine arguments)
@@ -2630,6 +2653,11 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, h_m
   call h_N_a%view(h_N)
   call h_in_a%view(h_in)
   call mask2dT_a%view(mask2dT)
+
+  ! Get the lower and upper bounds of the h_in_a container
+  ! and allocate a local array
+  !JMD KLUDGE: fix with more elegant solution
+  allocate(slp(h_in_a%lb(1):h_in_a%ub(1),h_in_a%lb(2):h_in_a%ub(2),h_in_a%lb(3):h_in_a%ub(3)))
 
   local_open_BC = .false.
   if (associated(OBC)) then
@@ -2714,42 +2742,21 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, G, GV, mask2dT_a, h_m
     enddo
   endif
 
-#ifdef _ORIG
-  !call h_in_a%dup(h_in)
-  !call h_in_a%copy2Array(h_in)
-#endif
-
-  ! Duplicate the arrays
-  !call h_S_a%dup(h_S)
-  !call h_N_a%dup(h_N)
-
-  ! Copy data into array containers
-  !call h_S_a%copy2Array(h_S)
-  !call h_N_a%copy2Array(h_N)
-
   if (monotonic) then
     call PPM_limit_cw84(bx, h_in_a, h_S_a, h_N_a)
   else
     call PPM_limit_pos(bx, h_in_a, h_S_a, h_N_a, h_min)
   endif
 
-  ! Copy data back to Fortran arrays
-  !call h_S_a%copy2F(h_S)
-  !call h_N_a%copy2F(h_N)
-
-  ! Free up temporary containers
-  !call h_S_a%free()
-  !call h_N_a%free()
-
-  ! Deallocate local temporaries
-  !call slp_a%free()
+  ! Deallocate local temporary array
+  if(allocated(slp)) deallocate(slp)
 
   ! Deallocate local iteration boxes
   call bx%free()
   call bxE%free()
 
   return
-end subroutine PPM_reconstruction_y
+end subroutine PPM_reconstruction_y_fortran
 
 !> This subroutine limits the left/right edge values of the PPM reconstruction
 !! to give a reconstruction that is positive-definite.  Here this is
@@ -3086,6 +3093,82 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
      end select
 
 end subroutine PPM_limit_cw84
+
+!< Shim for PPM_reconstruction_y
+subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+    implicit none
+
+    type(Box_t), intent(in)          :: bxH        !< H-grid iteration Box
+    type(RealArray_t), intent(in)    :: h_in_a     !< Layer thickness
+    type(RealArray_t), intent(inout) :: h_S_a      !< South edge thickness
+    type(RealArray_t), intent(inout) :: h_N_a      !< North edge thickness
+    type(RealArray_t), intent(in)    :: mask2dT_a  !< Mask (0 land, 1 ocean)
+    real,            intent(in)      :: h_min      !< Minimum thickness
+    logical,         intent(in)      :: monotonic  !< Use CW84 limiter
+    logical,         intent(in)      :: simple_2nd !< Use simple 2nd order
+    type(ocean_OBC_type), pointer    :: OBC        !< Open boundary control
+
+    ! local variables
+    integer :: mode
+    type(Box_C) :: bx_c
+    type(RealArray_C) :: h_in_c, h_S_c, h_N_c, mask2dT_c
+    type(c_ptr) :: obc_c
+
+    ! create C-compatible descriptors
+    bx_c       = bxH%to_c()
+    h_in_c     = h_in_a%to_c()
+    h_S_c      = h_S_a%to_c()
+    h_N_c      = h_N_a%to_c()
+    mask2dT_c  = mask2dT_a%to_c()
+    obc_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
+
+    print *,'PPM_reconstruction_y: inside the SHIM'
+    mode = getenv_mode("PPM_RECONSTRUCTION_Y_MODE", default=TIMH_runFORTRAN)
+
+    ! Call C++ bridge
+    select case (mode)
+
+       case (TIMH_runFORTRAN)
+
+          ! Run Fortran code
+          call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
+                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+
+#ifdef _TIM
+       case (TIMH_capture)
+
+          print *,'PPM_reconstruction_y: CAPTURE'
+          ! Call C++ bridge to capture the input state
+          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
+                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
+                  obc_c, int(TIMH_CAPTURE_INPUT,c_int))
+
+          ! Run Fortran truth
+          call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
+                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+
+          ! Call C++ bridge to capture the output state
+          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
+                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
+                  obc_c, int(TIMH_CAPTURE_OUTPUT,c_int))
+
+       case (TIMH_runAMREX)
+
+          ! Call C++ bridge to execute AMReX code
+          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
+                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
+                  obc_c, int(TIMH_RUN,c_int))
+#endif
+
+       case default
+
+          ! Run Fortran code
+          call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
+                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+
+    end select
+
+end subroutine PPM_reconstruction_y
 
 !> \namespace mom_continuity_ppm
 !!
