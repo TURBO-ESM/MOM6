@@ -530,7 +530,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
 
   ! Define a local iteration space expanded one element in the i-dimension
-  bx = bxH%expand(dim=1,n=1)
+  bx = bxH%grow(dim=1,n=1)
 
   ! This is the stencil of the reconstruction, not the scheme overall.
   stencil = 2 ; if (CS%simple_2nd) stencil = 1
@@ -605,7 +605,7 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
 
   ! Define a local iteration space expanded one element in the j-dimension
-  bx = bxH%expand(dim=2,n=1)
+  bx = bxH%grow(dim=2,n=1)
 
   ! Check see if the x and y-halo are sufficient before attempting
   ! to call PPM_reconstruction_x
@@ -2496,10 +2496,10 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, mono
   endif
 
   ! The local iteration box is expanded by one element in the j-dimension
-  bx = bxH%expand(dim=1,n=1)
+  bx = bxH%grow(dim=1,n=1)
 
   ! Create an second box that extent the iteration space by two in the i-dimension
-  bxE = bxH%expand(dim=1,n=2)
+  bxE = bxH%grow(dim=1,n=2)
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
@@ -2612,7 +2612,7 @@ end subroutine PPM_reconstruction_x
 subroutine PPM_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
   type(Box_t),                       intent(in)  :: bxH  !< H-grid iteration Box
   type(RealArray_t),  intent(in)    :: h_in_a !< Layer thickness [H ~> m or kg m-2].
-  type(RealArray_t),  intent(inout) :: h_S_a  !< South edge thickness in the reconstruction 
+  type(RealArray_t),  intent(inout) :: h_S_a  !< South edge thickness in the reconstruction
                                             !! [H ~> m or kg m-2].
   type(RealArray_t),  intent(inout) :: h_N_a  !< North edge thickness in the reconstruction,
                                             !! [H ~> m or kg m-2].
@@ -2665,10 +2665,10 @@ subroutine PPM_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_
   endif
 
   ! Local iteration box extends the h-grid by one element in the j-dimension
-  bx = bxH%expand(dim=2,n=1)
+  bx = bxH%grow(dim=2,n=1)
 
   ! Extended iteration box extends the h-grid by two elements in the j-dimension
-  bxE = bxH%expand(dim=2,n=2)
+  bxE = bxH%grow(dim=2,n=2)
 
   if (simple_2nd) then
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))

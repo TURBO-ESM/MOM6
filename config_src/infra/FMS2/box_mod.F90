@@ -16,26 +16,20 @@ module box_mod
      integer, pointer :: idxS(:) => NULL()  !< Start index of a box
      integer, pointer :: idxE(:) => NULL()  !< End index of a box
   contains
-     procedure   :: allocBox           !< allocate index box
-     procedure   :: setBox             !< Sets the index range for the bocx
-     procedure   :: freeBox            !< deallocates index box
-     procedure   :: to_c_Box           !< Converts Box to C
-     procedure   :: expandBox          !< Increase the bounds of a box in one dimension
-                                       !! both extents of box are increased by a fixed amount
-     procedure   :: contractBox        !< Decrease the bounds of a box in one dimension
-                                       !! both extents of box are decreased by a fixed amount
-     generic     :: alloc => allocBox  !< Allocate memory for a box
-     generic     :: free => freeBox    !< Deallocates memory used by box
-     generic     :: set => setBox      !< Set the extent of a box
-     generic     :: to_c => to_c_Box   !< Convert box to C
-     generic     :: expand => expandBox !< Expand the extent of a box
-     generic     :: contract => contractBox !< Contract the exxtent of a box
+     procedure   :: alloc  !< allocate an index box
+     procedure   :: set    !< Sets the index range for the bocx
+     procedure   :: free   !< deallocates index box
+     procedure   :: to_c   !< Converts Box to C
+     procedure   :: grow   !< Increase the bounds of a box in one dimension
+                           !! both extents of box are increased by a fixed amount
+     procedure   :: shrink !< Decrease the bounds of a box in one dimension
+                           !! both extents of box are decreased by a fixed amount
   end type Box_T
 
 contains
 
 !< Allocates an iteration box
-subroutine allocBox(this,ndims)
+subroutine alloc(this,ndims)
   class(Box_t), intent(inout) :: this   !< The box to be allocated
   integer, intent(in) :: ndims          !< The number of dimension in the box
 
@@ -45,19 +39,19 @@ subroutine allocBox(this,ndims)
 
   allocate(this%idxS(ndims), source=0)
   allocate(this%idxE(ndims), source=0)
-end subroutine allocBox
+end subroutine alloc
 
 !< Allocates an iteration box
-subroutine freeBox(this)
+subroutine free(this)
   class(Box_t), intent(inout) :: this   !< The box to be deallocated
 
   if(associated(this%idxS)) deallocate(this%idxS)
   if(associated(this%idxE)) deallocate(this%idxE)
 
-end subroutine freeBox
+end subroutine free
 
 !< Set the extents of the iteration box
-subroutine setBox(this,idxS,idxE)
+subroutine set(this,idxS,idxE)
   class(Box_t), intent(inout) :: this        !< The box to set
   integer, dimension(:), intent(in) :: idxS  !< The starting indices
   integer, dimension(:), intent(in) :: idxE  !< The ending indices
@@ -65,13 +59,13 @@ subroutine setBox(this,idxS,idxE)
   if(associated(this%idxS)) this%idxS(:)=idxS(:)
   if(associated(this%idxE)) this%idxE(:)=idxE(:)
 
-end subroutine setBox
+end subroutine set
 
 !< Return a new box with expanded iteration extents
-function expandBox(this,dim,n) result(new)
+function grow(this,dim,n) result(new)
   class(Box_t), intent(in) :: this !< The iteration box to modify
-  integer, intent(in)      :: dim  !< The dimension to expand
-  integer, intent(in)      :: n    !< The extent of the expansion
+  integer, intent(in)      :: dim  !< The dimension to grow
+  integer, intent(in)      :: n    !< The length to grow
   type(Box_t) :: new
 
   ! Local variables
@@ -87,13 +81,13 @@ function expandBox(this,dim,n) result(new)
   new%idxS(dim) = new%idxS(dim)-n
   new%idxE(dim) = new%idxE(dim)+n
 
-end function expandBox
+end function grow
 
 !< Return a new box with contracted iteration extents
-function contractBox(this,dim,n) result(new)
+function shrink(this,dim,n) result(new)
   class(Box_t), intent(in) :: this   !< The iteration box to modify
-  integer, intent(in)      :: dim    !< The dimension to contract
-  integer, intent(in)      :: n      !< The length of the contraction
+  integer, intent(in)      :: dim    !< The dimension to shrink
+  integer, intent(in)      :: n      !< The length to shrink
   type(Box_t) :: new
 
   ! Local variables
@@ -109,14 +103,14 @@ function contractBox(this,dim,n) result(new)
   new%idxS(dim) = new%idxS(dim)+n
   new%idxE(dim) = new%idxE(dim)-n
 
-end function contractBox
+end function shrink
 
 !< Convert Fortran box to C
-function to_c_Box(this) result(cdesc)
+function to_c(this) result(cdesc)
   class(Box_t), intent(in) :: this  !< The box to convert
   type(Box_C) :: cdesc              !< C compatible pointers
   cdesc%idxS = c_loc(this%idxS)
   cdesc%idxE = c_loc(this%idxE)
-end function to_c_Box
+end function to_c
 
 end module box_mod
