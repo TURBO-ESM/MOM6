@@ -2,6 +2,7 @@
 module tim_helperF
 
   use MOM_string_functions, only : uppercase
+  use MOM_error_infra, only : MOM_err, FATAL
   use iso_c_binding, only : c_int
 
   implicit none
@@ -27,6 +28,7 @@ contains
 
     character(len=:), allocatable :: str
     integer :: length, status
+    character(len=256) :: mesg
 
     ! Get length first
     call get_environment_variable(name, length=length, status=status)
@@ -54,9 +56,9 @@ contains
     case ("CAPTURE")
       mode = TIMH_capture
     case default
-      print *, "ERROR: Invalid value for ", name, " = ", trim(str)
-      print *, "Allowed values: AMREX, FORTRAN, CAPTURE"
-      stop 1
+      write(mesg,'("tim_helperF::getenv_mod called with a ",A, &
+               & " allowed values: AMREX, FORTRAN, CAPTURE")') TRIM(str)
+      call MOM_err(FATAL,mesg)
     end select
 
   end function getenv_mode

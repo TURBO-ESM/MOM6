@@ -563,6 +563,10 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
   endif
 
+  ! Free memory associated with index boxes
+  call bx%free()
+  call bxH%free()
+
   call cpu_clock_end(id_clock_reconstruct)
 
 end subroutine zonal_edge_thickness
@@ -2502,14 +2506,18 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, mono
   bxE = bxH%grow(dim=1,n=2)
 
   if (simple_2nd) then
-    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
+    do concurrent(k=bx%idxS(3):bx%idxE(3), &
+                  j=bx%idxS(2):bx%idxE(2), &
+                  i=bx%idxS(1):bx%idxE(1)) ! Local box (bx)
       h_im1 = mask2dT(i-1,j) * h_in(i-1,j,k) + (1.0-mask2dT(i-1,j)) * h_in(i,j,k)
       h_ip1 = mask2dT(i+1,j) * h_in(i+1,j,k) + (1.0-mask2dT(i+1,j)) * h_in(i,j,k)
       h_W(i,j,k) = 0.5*( h_im1 + h_in(i,j,k) )
       h_E(i,j,k) = 0.5*( h_ip1 + h_in(i,j,k) )
     enddo
   else
-    do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
+    do concurrent(k=bxE%idxS(3):bxE%idxE(3), &
+                  j=bxE%idxS(2):bxE%idxE(2), &
+                  i=bxE%idxS(1):bxE%idxE(1)) ! Expanded box (bxE)
       if ((mask2dT(i-1,j) * mask2dT(i,j) * mask2dT(i+1,j)) == 0.0) then
         slp(i,j,k) = 0.0
       else
@@ -2538,7 +2546,9 @@ subroutine PPM_reconstruction_x(bxH, h_in, h_W, h_E, G, GV, mask2dT, h_min, mono
       enddo
     endif
 
-    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
+    do concurrent(k=bx%idxS(3):bx%idxE(3), &
+                  j=bx%idxS(2):bx%idxE(2), &
+                  i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
     ! h_im1 = h_in(i-1,j,k) ; if (mask2dT(i-1,j) < 0.5) h_im1 = h_in(i,j)
@@ -2671,14 +2681,18 @@ subroutine PPM_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_
   bxE = bxH%grow(dim=2,n=2)
 
   if (simple_2nd) then
-    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
+    do concurrent(k=bx%idxS(3):bx%idxE(3), &
+                  j=bx%idxS(2):bx%idxE(2), &
+                  i=bx%idxS(1):bx%idxE(1))
       h_jm1 = mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-mask2dT(i,j-1)) * h_in(i,j,k)
       h_jp1 = mask2dT(i,j+1) * h_in(i,j+1,k) + (1.0-mask2dT(i,j+1)) * h_in(i,j,k)
       h_S(i,j,k) = 0.5*( h_jm1 + h_in(i,j,k) )
       h_N(i,j,k) = 0.5*( h_jp1 + h_in(i,j,k) )
     enddo
   else
-    do concurrent(k=bxE%idxS(3):bxE%idxE(3),j=bxE%idxS(2):bxE%idxE(2),i=bxE%idxS(1):bxE%idxE(1))  ! Expanded box (bxE)
+    do concurrent(k=bxE%idxS(3):bxE%idxE(3), &
+                  j=bxE%idxS(2):bxE%idxE(2), &
+                  i=bxE%idxS(1):bxE%idxE(1)) ! Expanded box (bxE)
       if ((mask2dT(i,j-1) * mask2dT(i,j) * mask2dT(i,j+1)) == 0.0) then
         slp(i,j,k) = 0.0
       else
@@ -2707,7 +2721,9 @@ subroutine PPM_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_
       enddo
     endif
 
-    do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
+    do concurrent(k=bx%idxS(3):bx%idxE(3), &
+                  j=bx%idxS(2):bx%idxE(2), &
+                  i=bx%idxS(1):bx%idxE(1))
       ! Neighboring values should take into account any boundaries.  The 3
       ! following sets of expressions are equivalent.
       h_jm1 = mask2dT(i,j-1) * h_in(i,j-1,k) + (1.0-mask2dT(i,j-1)) * h_in(i,j,k)
@@ -2782,7 +2798,9 @@ subroutine PPM_limit_pos_fortran(bx, h_in_a, h_L_a, h_R_a, h_min)
   call h_L_a%view(h_L)
   call h_R_a%view(h_R)
 
-  do concurrent (k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
+  do concurrent (k=bx%idxS(3):bx%idxE(3), &
+                 j=bx%idxS(2):bx%idxE(2), &
+                 i=bx%idxS(1):bx%idxE(1))
     ! This limiter prevents undershooting minima within the domain with
     ! values less than h_min.
     curv = 3.0*((h_L(i,j,k) + h_R(i,j,k)) - 2.0*h_in(i,j,k))
@@ -2828,7 +2846,9 @@ subroutine PPM_limit_CW84_fortran(bx, h_in_a, h_L_a, h_R_a)
   call h_L_a%view(h_L)
   call h_R_a%view(h_R)
 
-  do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))
+  do concurrent(k=bx%idxS(3):bx%idxE(3), &
+                j=bx%idxS(2):bx%idxE(2), &
+                i=bx%idxS(1):bx%idxE(1))
     ! This limiter monotonizes the parabola following
     ! Colella and Woodward, 1984, Eq. 1.10
     h_i = h_in(i,j,k)
@@ -3112,7 +3132,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
     integer :: mode
     type(Box_C) :: bx_c
     type(RealArray_C) :: h_in_c, h_S_c, h_N_c, mask2dT_c
-    type(c_ptr) :: obc_c
+    type(c_ptr) :: OBC_c
 
     ! create C-compatible descriptors
     bx_c       = bxH%to_c()
@@ -3120,9 +3140,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
     h_S_c      = h_S_a%to_c()
     h_N_c      = h_N_a%to_c()
     mask2dT_c  = mask2dT_a%to_c()
-    obc_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
 
-    print *,'PPM_reconstruction_y: inside the SHIM'
     mode = getenv_mode("PPM_RECONSTRUCTION_Y_MODE", default=TIMH_runFORTRAN)
 
     ! Call C++ bridge
@@ -3137,11 +3155,11 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
 #ifdef _TIM
        case (TIMH_capture)
 
-          print *,'PPM_reconstruction_y: CAPTURE'
+          OBC_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
           ! Call C++ bridge to capture the input state
           call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
                   h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  obc_c, int(TIMH_CAPTURE_INPUT,c_int))
+                  OBC_c, int(TIMH_CAPTURE_INPUT,c_int))
 
           ! Run Fortran truth
           call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
@@ -3150,14 +3168,15 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
           ! Call C++ bridge to capture the output state
           call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
                   h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  obc_c, int(TIMH_CAPTURE_OUTPUT,c_int))
+                  OBC_c, int(TIMH_CAPTURE_OUTPUT,c_int))
 
        case (TIMH_runAMREX)
 
+          OBC_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
           ! Call C++ bridge to execute AMReX code
           call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
                   h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  obc_c, int(TIMH_RUN,c_int))
+                  OBC_c, int(TIMH_RUN,c_int))
 #endif
 
        case default

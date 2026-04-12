@@ -35,7 +35,7 @@ subroutine alloc(this,ndims)
 
   ! If already associated deallocate
   if(associated(this%idxS)) deallocate(this%idxS)
-  if(associated(this%idxE)) deallocate(this%idxS)
+  if(associated(this%idxE)) deallocate(this%idxE)
 
   allocate(this%idxS(ndims), source=0)
   allocate(this%idxE(ndims), source=0)

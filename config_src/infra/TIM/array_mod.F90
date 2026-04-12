@@ -392,7 +392,7 @@ end subroutine dupReal4D
 !< Copy from Fortran array to IntArray_t
 subroutine copy2AInt1D(this,var)
   class(IntArray_t), intent(inout) :: this  !< The destination array container
-  real, dimension(:), intent(in) :: var      !< The source Fortran array
+  integer, dimension(:), intent(in) :: var      !< The source Fortran array
 
   this%data(:) = var(:)
 
@@ -401,7 +401,7 @@ end subroutine copy2AInt1D
 !< Copy from Fortran array to IntArray_t
 subroutine copy2AInt2D(this,var)
   class(IntArray_t), intent(inout) :: this  !< The destination array container
-  real, dimension(:,:), intent(in) :: var    !< The source Fortran array
+  integer, dimension(:,:), intent(in) :: var    !< The source Fortran array
 
   ! Local variables
   integer :: i, j, n1, n2,idx
@@ -420,7 +420,7 @@ end subroutine copy2AInt2D
 !< Copy from Fortran array to IntArray_t
 subroutine copy2AInt3D(this,var)
   class(IntArray_t), intent(inout) :: this  !< The destination array container
-  real, dimension(:,:,:), intent(in) :: var  !< The source Fortran array
+  integer, dimension(:,:,:), intent(in) :: var  !< The source Fortran array
 
   ! Local variables
   integer :: i, j, k, n1, n2, n3, idx
@@ -442,7 +442,7 @@ end subroutine copy2AInt3D
 !< Copy from Fortran array to IntArray_t
 subroutine copy2AInt4D(this,var)
   class(IntArray_t), intent(inout) :: this   !< The destination array container
-  real, dimension(:,:,:,:), intent(in) :: var !< The source Fortran array
+  integer, dimension(:,:,:,:), intent(in) :: var !< The source Fortran array
 
   ! Local variables
   integer :: i, j, k, m, n1, n2, n3, n4, idx
@@ -467,7 +467,7 @@ end subroutine copy2AInt4D
 ! Copy from 1D IntArray_t to Fortran
 subroutine copy2FInt1D(this,var)
   class(IntArray_t), intent(in) :: this    !< The source array container
-  real, dimension(:), intent(inout) :: var  !< The destination Fortran array
+  integer, dimension(:), intent(inout) :: var  !< The destination Fortran array
 
   var(:) = this%data(:)
 
@@ -476,7 +476,7 @@ end subroutine copy2FInt1D
 ! Copy from 2D IntArray_t to Fortran
 subroutine copy2FInt2D(this,var)
   class(IntArray_t), intent(in) :: this     !< The source array container
-  real, dimension(:,:), intent(inout) :: var !< The destination Fortran array
+  integer, dimension(:,:), intent(inout) :: var !< The destination Fortran array
 
   ! Local variables
   integer :: i, j, n1,n2,idx
@@ -495,7 +495,7 @@ end subroutine copy2FInt2D
 ! Copy from 3D IntArray_t to Fortran
 subroutine copy2FInt3D(this,var)
   class(IntArray_t), intent(in) :: this       !< The source array container
-  real, dimension(:,:,:), intent(inout) :: var !< The destination Fortran array
+  integer, dimension(:,:,:), intent(inout) :: var !< The destination Fortran array
 
   ! Local variables
   integer :: i, j, k, n1,n2,n3, idx
@@ -517,7 +517,7 @@ end subroutine copy2FInt3D
 ! Copy from 4D IntArray_t to Fortran
 subroutine copy2FInt4D(this,var)
   class(IntArray_t), intent(in) :: this          !< The source array container
-  real, dimension(:,:,:,:), intent(inout) :: var  !< The destination Fortran array
+  integer, dimension(:,:,:,:), intent(inout) :: var  !< The destination Fortran array
 
   ! Local variables
   integer :: i, j, k, m, n1, n2, n3, n4, idx
@@ -541,7 +541,7 @@ end subroutine copy2FInt4D
 
 subroutine dupInt1D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
-  real, dimension(:) :: var                 !< The Fortran array to duplicate
+  integer, dimension(:) :: var                 !< The Fortran array to duplicate
 
   ! Local variables
   integer, dimension(1) :: lb, ub
@@ -554,7 +554,7 @@ end subroutine dupInt1D
 
 subroutine dupInt2D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
-  real, dimension(:,:) :: var               !< The Fortran array to duplicate
+  integer, dimension(:,:) :: var               !< The Fortran array to duplicate
 
   ! Local variables
   integer, dimension(2) :: lb, ub
@@ -569,7 +569,7 @@ end subroutine dupInt2D
 
 subroutine dupInt3D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
-  real, dimension(:,:,:) :: var             !< The Fortran array to duplicate
+  integer, dimension(:,:,:) :: var             !< The Fortran array to duplicate
 
   ! Local variables
   integer, dimension(3) :: lb, ub
@@ -586,7 +586,7 @@ end subroutine dupInt3D
 
 subroutine dupInt4D(this,var)
   class(IntArray_t), intent(inout) :: this !< The resulting array container
-  real, dimension(:,:,:,:) :: var           !< The Fortran array to duplicate
+  integer, dimension(:,:,:,:) :: var           !< The Fortran array to duplicate
 
   ! Local variables
   integer, dimension(4) :: lb, ub
