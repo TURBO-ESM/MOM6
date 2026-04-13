@@ -1,4 +1,4 @@
-#undef _TIM
+#define _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -83,7 +83,7 @@ implicit none ; private
       real(c_double), intent(in)        :: h_min      !< Minimum thickness
       integer(c_int), intent(in)        :: monotonic  !< Use CW84 limiter
       integer(c_int), intent(in)        :: simple_2nd !< Use 2nd order scheme
-      type(c_ptr),    intent(in)        :: obc        !< OBC pointer [FIXME: add support for OBC pointer]
+      type(c_ptr),    intent(in), value :: obc        !< OBC pointer [FIXME: add support for OBC pointer]
       integer(c_int), intent(in)        :: mode       !< Execution mode of the bridge
 
     end subroutine ppm_reconstruction_y_bridge
