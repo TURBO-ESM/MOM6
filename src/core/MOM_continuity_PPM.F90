@@ -1,4 +1,4 @@
-#define _TIM
+#undef _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
