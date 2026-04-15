@@ -24,9 +24,72 @@ module box_mod
                            !! both extents of box are increased by a fixed amount
      procedure   :: shrink !< Decrease the bounds of a box in one dimension
                            !! both extents of box are decreased by a fixed amount
+     procedure   :: write_binary
+     procedure   :: read_binary
   end type Box_T
 
 contains
+
+subroutine read_binary(this, unit)
+  class(Box_t), intent(inout) :: this
+  integer,      intent(in)    :: unit
+
+  integer :: rank
+
+  ! --- Read rank ---
+  read(unit) rank
+
+  ! --- Null case ---
+  if (rank == -1) then
+    if (associated(this%idxS)) deallocate(this%idxS)
+    if (associated(this%idxE)) deallocate(this%idxE)
+    nullify(this%idxS)
+    nullify(this%idxE)
+    return
+  endif
+
+  ! --- Allocate ---
+  if (associated(this%idxS)) deallocate(this%idxS)
+  if (associated(this%idxE)) deallocate(this%idxE)
+
+  allocate(this%idxS(rank))
+  allocate(this%idxE(rank))
+
+  ! --- Read bounds ---
+  read(unit) this%idxS
+  read(unit) this%idxE
+
+end subroutine
+
+subroutine write_binary(this, unit)
+  class(Box_t), intent(in) :: this
+  integer,      intent(in) :: unit
+
+  integer :: rank
+
+  ! --- Handle unassociated pointers ---
+  if (.not. associated(this%idxS) .or. .not. associated(this%idxE)) then
+    rank = -1
+    write(unit) rank
+    return
+  endif
+
+  ! --- Determine rank ---
+  rank = size(this%idxS)
+
+  ! --- Consistency check ---
+  if (size(this%idxE) /= rank) then
+    stop "Box_t%write_binary: idxS/idxE size mismatch"
+  endif
+
+  ! --- Write rank ---
+  write(unit) rank
+
+  ! --- Write bounds arrays ---
+  write(unit) this%idxS
+  write(unit) this%idxE
+
+end subroutine write_binary
 
 !< Allocates an iteration box
 subroutine alloc(this,ndims)

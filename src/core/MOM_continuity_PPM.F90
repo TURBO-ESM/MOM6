@@ -17,10 +17,11 @@ use MOM_verticalGrid, only : verticalGrid_type
 
 use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
-use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_ptr
-use TIM_helperF, only : getenv_mode
+use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_char, c_null_ptr
+use TIM_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
 use TIM_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
           TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN
+use posix, only : mkdir_posix
 
 implicit none ; private
 
@@ -29,7 +30,7 @@ implicit none ; private
   !----------------------------------------
   interface
     !> Bridge for the PPM_limit_pos subroutine
-    subroutine ppm_limit_pos_bridge(bx, h_in, h_L, h_R, h_min, mode) bind(C)
+    subroutine ppm_limit_pos_bridge(bx, h_in, h_L, h_R, h_min) bind(C)
        use iso_c_binding
        use array_mod, only : RealArray_c
        use box_mod,   only : Box_c
@@ -42,13 +43,12 @@ implicit none ; private
                                                 !! [H ~> m or kg m-2].
        real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
                                                 !! by a concave parabolic fit [H ~> m or kg m-2]
-       integer(c_int), intent(in) :: mode       !< Execution mode of the briddge
     end subroutine ppm_limit_pos_bridge
   end interface
 
   interface
     !> Bridge for the PPM_limit_cw84 subroutine
-    subroutine ppm_limit_cw84_bridge(bx, h_in, h_L, h_R, mode) bind(C)
+    subroutine ppm_limit_cw84_bridge(bx, h_in, h_L, h_R) bind(C)
       use iso_c_binding
       use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
@@ -60,15 +60,13 @@ implicit none ; private
                                                 !! [H ~> m or kg m-2].
       type(RealArray_C), intent(inout)  :: h_R  !< Right thickness in the reconstruction
                                                 !! [H ~> m or kg m-2].
-      integer(c_int), intent(in) :: mode        !< Execution mode of the bridg
-
     end subroutine ppm_limit_cw84_bridge
   end interface
 
   interface
     !> Bridge for the PPM_reconstruction_y subroutine
     subroutine ppm_reconstruction_y_bridge(bx, h_in, h_S, h_N, mask2dT, &
-                                           h_min, monotonic, simple_2nd, obc, mode) bind(C)
+                                           h_min, monotonic, simple_2nd, obc) bind(C)
       use iso_c_binding
       use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
@@ -83,12 +81,9 @@ implicit none ; private
       real(c_double), intent(in)        :: h_min      !< Minimum thickness
       integer(c_int), intent(in)        :: monotonic  !< Use CW84 limiter
       integer(c_int), intent(in)        :: simple_2nd !< Use 2nd order scheme
-      type(c_ptr),    intent(in), value :: obc        !< OBC pointer [FIXME: add support for OBC pointer]
-      integer(c_int), intent(in)        :: mode       !< Execution mode of the bridge
-
+      type(c_ptr),    intent(in), value :: obc        !< Pointer to OBC structure
     end subroutine ppm_reconstruction_y_bridge
   end interface
-
 
 #include <MOM_memory.h>
 
@@ -3007,7 +3002,7 @@ function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
 
 end function set_continuity_loop_bounds
 
-!< Shim for PPM_limit_pos
+!< shim for PPM_limit_pos
 subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
     implicit none
 
@@ -3024,33 +3019,57 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
     integer :: mode
     type(RealArray_C) :: h_in_c, h_L_c, h_R_c
     type(Box_c) :: bx_c
+    integer :: rc
+    type (io_recorder) :: rec
+    logical :: capture
+    character(len=80)  :: kernel
+    character(len=100) :: dir
+    character(len=256) :: binFile, metaFile
 
-    ! create C-compatible descriptors
-    bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
+    kernel = "ppm_limit_pos"
 
     mode = getenv_mode("PPM_LIMIT_POS_MODE",default=TIMH_runFORTRAN)
 
     select case (mode)
-       case (TIMH_runFORTRAN)
-          ! Run Fortran code
-          call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
-#ifdef _TIM
        case (TIMH_capture)
-           ! Call C++ bridge to capture the input state
-           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
-                   int(TIMH_CAPTURE_INPUT,c_int))
+           capture = .FALSE.
+           if((.not. already_recorded(TRIM(kernel))) .and. is_root_pe()) capture = .TRUE.
 
+           if(capture) then
+             ! -----------WRITE DATA---------------------
+             ! open a dump file to store an ArrayReal_t
+             dir = "capture"
+             rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
+
+             binFile  = TRIM(dir) // "/" // TRIM(kernel) // ".bin"
+             metaFile = TRIM(dir) // "/" // TRIM(kernel) // ".meta"
+
+             call rec%open_write(binFile, metaFile)
+
+             ! write out the input arguments
+             call rec%add("_bx", bx)
+             call rec%add("_h_in", h_in )
+             call rec%add("_h_L_before", h_L )
+             call rec%add("_h_R_before", h_R )
+             call rec%add("_h_min", h_min)
+           endif
+           
            ! Run Fortran truth
            call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 
-           ! Call C++ bridge to capture the output state
-           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
-                   int(TIMH_CAPTURE_OUTPUT,c_int))
-
+           if(capture) then
+             call rec%add("_h_S_after", h_L)
+             call rec%add("_h_N_after", h_R)
+             ! Close the file
+             call rec%close()
+             call mark_recorded(TRIM(kernel))
+           endif
+#ifdef _TIM
        case (TIMH_runAMREX)
+           ! create C-compatible descriptors
+           bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
            ! Call C++ bridge to execute AMReX code
-           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min, &
-                   int(TIMH_RUN,c_int))
+           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min)
 #endif
        case default
           ! Run Fortran code
@@ -3060,7 +3079,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
 
 end subroutine PPM_limit_pos
 
-!< Shim for PPM_limit_cw84
+!< shim for PPM_limit_cw84
 subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
     implicit none
 
@@ -3074,47 +3093,65 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
     integer :: mode
     type(RealArray_C) :: h_in_c, h_L_c, h_R_c
     type(Box_c) :: bx_c
+    integer :: rc
+    type (io_recorder) :: rec
+    logical :: capture
+    character(len=80)  :: kernel
+    character(len=100) :: dir
+    character(len=256) :: binFile, metaFile
 
-    ! create C-compatible descriptors
-    bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
+    kernel = "ppm_limit_cw84"
 
     mode = getenv_mode("PPM_LIMIT_CW84_MODE", default=TIMH_runFORTRAN)
     ! Call C++ bridge
     select case (mode)
-       case (TIMH_runFORTRAN)
-
-          ! Run Fortran code
-          call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
-#ifdef _TIM
        case (TIMH_capture)
+          capture = .FALSE.
+          if((.not. already_recorded(TRIM(kernel))) .and. is_root_pe()) capture = .TRUE.
 
-          ! Call C++ bridge to capture the input state
-          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
-                  int(TIMH_CAPTURE_INPUT,c_int))
+          if(capture) then
+            ! -----------WRITE DATA---------------------
+            ! open a dump file to store an ArrayReal_t
+            dir = "capture"
+            rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
+
+            binFile  = TRIM(dir) // "/" // TRIM(kernel) // ".bin"
+            metaFile = TRIM(dir) // "/" // TRIM(kernel) // ".meta"
+
+            call rec%open_write(binFile, metaFile)
+
+            ! write out the input arguments
+            call rec%add("_bx", bx)
+            call rec%add("_h_in", h_in )
+            call rec%add("_h_L_before", h_L )
+            call rec%add("_h_R_before", h_R )
+          endif
 
           ! Run Fortran truth
           call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
 
-          ! Call C++ bridge to capture the output  state
-          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
-                  int(TIMH_CAPTURE_OUTPUT,c_int))
-
+          if(capture) then
+            call rec%add("_h_S_after", h_L)
+            call rec%add("_h_N_after", h_R)
+            ! Close the file
+            call rec%close()
+            call mark_recorded(TRIM(kernel))
+          endif
+#ifdef _TIM
        case (TIMH_runAMREX)
-
+          ! Create C compatable descriptors
+          bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
           !  Call C+ bridge to execute AMReX code
-          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c, &
-                  int(TIMH_RUN,c_int))
+          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c)
 #endif
        case default
-
           ! Run Fortran code
           call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
-
      end select
 
 end subroutine PPM_limit_cw84
 
-!< Shim for PPM_reconstruction_y
+!< shim for PPM_reconstruction_y
 subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, monotonic, simple_2nd, OBC)
     implicit none
 
@@ -3133,58 +3170,70 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
     type(Box_C) :: bx_c
     type(RealArray_C) :: h_in_c, h_S_c, h_N_c, mask2dT_c
     type(c_ptr) :: OBC_c
-
-    ! create C-compatible descriptors
-    bx_c       = bxH%to_c()
-    h_in_c     = h_in_a%to_c()
-    h_S_c      = h_S_a%to_c()
-    h_N_c      = h_N_a%to_c()
-    mask2dT_c  = mask2dT_a%to_c()
+    integer :: rc
+    type (io_recorder) :: rec
+    logical :: capture
+    character(len=80)  :: kernel
+    character(len=100) :: dir
+    character(len=256) :: binFile, metaFile
 
     mode = getenv_mode("PPM_RECONSTRUCTION_Y_MODE", default=TIMH_runFORTRAN)
 
     ! Call C++ bridge
     select case (mode)
 
-       case (TIMH_runFORTRAN)
-
-          ! Run Fortran code
-          call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
-                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
-
-#ifdef _TIM
        case (TIMH_capture)
+          capture = .FALSE.
+          if((.not. already_recorded(TRIM(kernel))) .and. is_root_pe()) capture = .TRUE.
+          
+          if(capture) then
+            ! -----------WRITE DATA---------------------
+            ! open a dump file to store an ArrayReal_t
+            dir = "capture"
+            rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
 
-          OBC_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
-          ! Call C++ bridge to capture the input state
-          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
-                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  OBC_c, int(TIMH_CAPTURE_INPUT,c_int))
+            binFile  = TRIM(dir) // "/" // TRIM(kernel) // ".bin"
+            metaFile = TRIM(dir) // "/" // TRIM(kernel) // ".meta"
 
-          ! Run Fortran truth
+            call rec%open_write(binFile, metaFile)
+
+            ! Write out the input arguments
+            call rec%add("_bxH", bxH)
+            call rec%add("_h_in", h_in_a )
+            call rec%add("_h_S_before", h_S_a )
+            call rec%add("_h_N_before", h_N_a )
+            call rec%add("_mask2d_t", mask2DT_a )
+            call rec%add("_h_min", h_min)
+            call rec%add("_monotonic", monotonic)
+            call rec%add("_simple_2nd", simple_2nd)
+            !call rec%add("OBC", OBC)
+          endif
+
+          ! Capture the Fortran results
           call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
-                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
-
-          ! Call C++ bridge to capture the output state
-          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
-                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  OBC_c, int(TIMH_CAPTURE_OUTPUT,c_int))
-
+                         mask2dT_a, h_min, monotonic, simple_2nd, OBC)
+          if(capture) then
+            call rec%add("_h_S_after", h_S_a)
+            call rec%add("_h_N_after", h_N_a)
+            ! Close the file
+            call rec%close()
+            call mark_recorded(TRIM(kernel))
+          endif
+#ifdef _TIM
        case (TIMH_runAMREX)
 
-          OBC_c      = c_null_ptr  ! [FIXME: Currently OBC are not supported]
+          ! create C-compatible descriptors
+          bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_S_c = h_S_a%to_c(); 
+          h_N_c = h_N_a%to_c(); mask2dT_c = mask2dT_a%to_c()
+          if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
           ! Call C++ bridge to execute AMReX code
           call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
-                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd), &
-                  OBC_c, int(TIMH_RUN,c_int))
+                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd),OBC_c)
 #endif
-
        case default
-
           ! Run Fortran code
           call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
-                                            mask2dT_a, h_min, monotonic, simple_2nd, OBC)
-
+                           mask2dT_a, h_min, monotonic, simple_2nd, OBC)
     end select
 
 end subroutine PPM_reconstruction_y

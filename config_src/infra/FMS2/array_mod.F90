@@ -44,6 +44,8 @@ module array_mod
                   copy2AReal3D, copy2AReal4D
      procedure :: dupReal1D, dupReal2D, &       !< Create a duplicate RealArray_t of a Fortran array
                   dupReal3D, dupReal4D
+     procedure :: write_binary
+     procedure :: read_binary
      generic :: copy2F => copy2FReal1D, &       !< Generic interface for copy to Fortran arrayc
                 copy2FReal2D, copy2FReal3d, &
                 copy2FReal4D
@@ -101,6 +103,105 @@ module array_mod
   end type intArray_t
 
 contains
+
+subroutine write_binary(this, unit)
+  class(RealArray_t), intent(in) :: this
+  integer,            intent(in) :: unit
+
+  integer :: i
+  integer :: n
+
+  ! --- Null case ---
+  if (.not. associated(this%data)) then
+    write(unit) -1   ! rank = -1 signals null
+    return
+  endif
+
+  ! --- Rank ---
+  n = this%rank
+  write(unit) n
+
+  ! --- Write shape ---
+  do i = 1, n
+    write(unit) this%shape(i)
+  enddo
+
+  ! --- Write bounds ---
+  do i = 1, n
+    write(unit) this%lb(i)
+    write(unit) this%ub(i)
+  enddo
+
+  ! --- Write data size ---
+  write(unit) size(this%data)
+
+  ! --- Write payload ---
+  write(unit) this%data
+
+end subroutine write_binary
+
+subroutine read_binary(this, unit)
+  class(RealArray_t), intent(inout) :: this
+  integer,            intent(in)    :: unit
+
+  integer :: i
+  integer :: n
+  integer :: total_size
+
+  ! --- Read rank ---
+  read(unit) n
+
+  ! --- Null case ---
+  if (n == -1) then
+    if (associated(this%data)) deallocate(this%data)
+    if (associated(this%shape)) deallocate(this%shape)
+    if (associated(this%lb)) deallocate(this%lb)
+    if (associated(this%ub)) deallocate(this%ub)
+
+    nullify(this%data)
+    nullify(this%shape)
+    nullify(this%lb)
+    nullify(this%ub)
+    this%rank = 0
+    return
+  endif
+
+  this%rank = n
+
+  ! --- Clean old allocations ---
+  if (associated(this%shape)) deallocate(this%shape)
+  if (associated(this%lb)) deallocate(this%lb)
+  if (associated(this%ub)) deallocate(this%ub)
+  if (associated(this%data)) deallocate(this%data)
+
+  ! --- Allocate metadata ---
+  allocate(this%shape(n))
+  allocate(this%lb(n))
+  allocate(this%ub(n))
+
+  ! --- Read shape ---
+  do i = 1, n
+    read(unit) this%shape(i)
+  enddo
+
+  ! --- Read bounds ---
+  do i = 1, n
+    read(unit) this%lb(i)
+    read(unit) this%ub(i)
+  enddo
+
+  ! --- Read data size ---
+  read(unit) total_size
+
+  ! --- Allocate and read data ---
+  if (total_size > 0) then
+    allocate(this%data(total_size))
+    read(unit) this%data
+  else
+    nullify(this%data)
+  endif
+
+end subroutine read_binary
 
 !< Function to convert a Fortran structure to a C structure
 function to_c_Real(this) result(cdesc)
