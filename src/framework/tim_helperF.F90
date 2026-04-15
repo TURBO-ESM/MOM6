@@ -29,43 +29,46 @@ module tim_helperF
    integer, save :: n_recorded = 0
    integer, parameter :: type_read = 1, type_write = 2
 
- type :: io_entry
-  character(len=:), allocatable :: name
-  character(len=:), allocatable :: type_name
-  integer(kind=int64) :: offset
-end type io_entry
+   type :: io_entry
+     character(len=:), allocatable :: name         !< The name of a variable on which to perform IO
+     character(len=:), allocatable :: type_name    !< The type of the variable
+     integer(kind=int64) :: offset                 !< Byte offset in the binary output file
+   end type io_entry
 
-type :: io_recorder
-  integer :: unit_bin      ! binary file
-  integer :: unit_meta     ! metadata file
-  type(io_entry), allocatable :: entries(:)
-  integer :: n = 0
-  integer :: type 
-contains
-  procedure :: open_write
-  procedure :: open_read
-  procedure :: add_entry
-  procedure :: close
+   type :: io_recorder
+     integer :: unit_bin                       !< File unit for  binary file
+     integer :: unit_meta                      !< File unit for  metadata file
+     type(io_entry), allocatable :: entries(:) !< A description of each of the variables in the file
+     integer :: n = 0                          !< Counter for number of variables in a file
+     integer :: type                           !< Indicates if an open operation is 
+                                               !< for reading or writing
+     contains
+       procedure :: open_write       !< open metadata and binary files for writing
+       procedure :: open_read        !< open metadata and binary files for reading
+       procedure :: add_entry        !< Add variable descriptor to the metadata file
+       procedure :: close            !< close the binary and metadata file
 
-  ! Write side 
-  procedure :: add_realarray
-  procedure :: add_box
-  procedure :: add_real
-  procedure :: add_integer
-  procedure :: add_logical
+       ! Write side 
+       procedure :: add_realarray    !< Write a RealArray_t variable to the capture file
+       procedure :: add_box          !< Write a Box_t variable to the capture file
+       procedure :: add_real         !< Write a real scalar variable to the capture file
+       procedure :: add_integer      !< Write an integer scalar variable to the capture file
+       procedure :: add_logical      !< Write a logical scalar variable to the capture file
 
-  ! Read side
-  procedure :: get_realarray
-  procedure :: get_box
-  procedure :: get_real
-  procedure :: get_integer
-  procedure :: get_logical
-
-  procedure :: load_metadata
-  procedure :: find_entry
-  generic   :: add => add_realarray, add_box, add_real, add_integer, add_logical
-  generic   :: get => get_realarray, get_box, get_real, get_integer, get_logical
-end type io_recorder
+       ! Read side
+       procedure :: get_realarray    !< Read a RealArray_t variable from the capture file
+       procedure :: get_box          !< Read a Box_t variable from the capture file
+       procedure :: get_real         !< Read a real scalar variable from the capture file
+       procedure :: get_integer      !< Read an integer scalar variable from the capture file
+       procedure :: get_logical      !< Read a logical scalar variable from the capture file
+       procedure :: load_metadata    !< Read in the metadata file
+       procedure :: find_entry       !< Query the locaiton of the variable in the binary
+                                     !! capture file
+       generic   :: add => add_realarray, add_box, &  !< Generic interface to add a variable
+               add_real, add_integer, add_logical     !! to the capture file
+       generic   :: get => get_realarray, get_box, &  !< Generic interface to get a variable
+               get_real, get_integer, get_logical     !! from the capture file
+   end type io_recorder
 
 contains
 
@@ -113,7 +116,7 @@ contains
 
 
   logical function already_recorded(name)
-    character(len=*), intent(in) :: name
+    character(len=*), intent(in) :: name        !< Name of the variable to check status
     integer :: i
 
     already_recorded = .false.
@@ -126,7 +129,7 @@ contains
   end function already_recorded
 
   subroutine mark_recorded(name)
-    character(len=*), intent(in) :: name
+    character(len=*), intent(in) :: name      !< Name of the variable to mark as areadly captured
 
     if (.not. already_recorded(name)) then
       if (n_recorded < max_kernels) then
@@ -139,9 +142,9 @@ contains
   end subroutine mark_recorded
 
 subroutine add_real(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  real(kind=real64), intent(in) :: val
+  class(io_recorder), intent(inout) :: this    !< The state recorder class
+  character(*), intent(in) :: name             !< The name of the variable to write
+  real(kind=real64), intent(in) :: val         !< The variable to write
 
   integer(kind=int64) :: pos
 
@@ -150,28 +153,33 @@ subroutine add_real(this, name, val)
   call this%add_entry(name, 'real64', pos)
 
   write(this%unit_bin) val
-end subroutine
+end subroutine add_real
 
 subroutine get_real(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  real(kind=real64), intent(out) :: val
+  class(io_recorder), intent(inout) :: this !< The state recorder class
+  character(*), intent(in) :: name          !< The name of the variable to read
+  real(kind=real64), intent(out) :: val     !< The variable to read
 
+  ! local variables
   integer :: idx
   integer(kind=int64) :: pos
+  character(len=256) :: mesg
 
   idx = this%find_entry(name)
-  if (idx < 0) stop "get_real: not found"
+  if (idx < 0) then 
+     write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
+     call MOM_err(FATAL,mesg)
+  endif
 
   pos = this%entries(idx)%offset
 
   read(this%unit_bin, pos=pos) val
-end subroutine
+end subroutine get_real
 
 subroutine add_integer(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  integer, intent(in) :: val
+  class(io_recorder), intent(inout) :: this  !< The state recorder class
+  character(*), intent(in) :: name           !< The name of the variable to write
+  integer, intent(in) :: val                 !< The variable to write
 
   integer(kind=int64) :: pos
 
@@ -180,28 +188,32 @@ subroutine add_integer(this, name, val)
   call this%add_entry(name, 'integer', pos)
 
   write(this%unit_bin) val
-end subroutine
+end subroutine add_integer
 
 subroutine get_integer(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  integer, intent(out) :: val
+  class(io_recorder), intent(inout) :: this   !< The state recorder class
+  character(*), intent(in) :: name            !< The name of the variable to read
+  integer, intent(out) :: val                 !< The variable to read
 
+  ! local variables
   integer :: idx
   integer(kind=int64) :: pos
+  character(len=256) :: mesg
 
   idx = this%find_entry(name)
   if (idx < 0) stop "get_integer: not found"
+     write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
+     call MOM_err(FATAL,mesg)
 
   pos = this%entries(idx)%offset
 
   read(this%unit_bin, pos=pos) val
-end subroutine
+end subroutine get_integer
 
 subroutine add_logical(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  logical, intent(in) :: val
+  class(io_recorder), intent(inout) :: this !< The state recorder class
+  character(*), intent(in) :: name          !< The name of the variable to write
+  logical, intent(in) :: val                !< The variable to write
 
   integer(kind=int64) :: pos
 
@@ -210,27 +222,34 @@ subroutine add_logical(this, name, val)
   call this%add_entry(name, 'logical', pos)
 
   write(this%unit_bin) val
-end subroutine
+end subroutine add_logical
 
 subroutine get_logical(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  logical, intent(out) :: val
+  class(io_recorder), intent(inout) :: this !< The state recorder class
+  character(*), intent(in) :: name          !< The name of the variable to read
+  logical, intent(out) :: val               !< The variable to read
 
+  ! local variables
   integer :: idx
   integer(kind=int64) :: pos
+  character(len=256) :: mesg
 
   idx = this%find_entry(name)
-  if (idx < 0) stop "get_logical: not found"
+  if (idx < 0) then 
+     write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
+     call MOM_err(FATAL,mesg)
+  endif
 
   pos = this%entries(idx)%offset
 
   read(this%unit_bin, pos=pos) val
-end subroutine
+
+end subroutine get_logical
 
 subroutine open_write(this, binfile, metafile)
   class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: binfile, metafile
+  character(*), intent(in) :: binfile    !< The name of the binary file to open for writing
+  character(*), intent(in) :: metafile   !< The name of the metadata file to open for writing
 
   open(newunit=this%unit_bin, file=binfile, &
        access='stream', form='unformatted', status='replace')
@@ -244,7 +263,8 @@ end subroutine open_write
 
 subroutine open_read(this, binfile, metafile)
   class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: binfile, metafile
+  character(*), intent(in) :: binfile    !< The name of the binary file to open for reading
+  character(*), intent(in) :: metafile   !< The name of the metadata file to open for reading
 
   open(newunit=this%unit_bin, file=binfile, &
        access='stream', form='unformatted', status='old')
@@ -259,8 +279,9 @@ subroutine open_read(this, binfile, metafile)
 end subroutine open_read
 
 subroutine load_metadata(this)
-  class(io_recorder), intent(inout) :: this
+  class(io_recorder), intent(inout) :: this   !< The state recorder class
 
+  ! local variables
   character(len=128) :: name, type_name
   integer(kind=int64) :: offset
 
@@ -287,8 +308,10 @@ subroutine load_metadata(this)
 end subroutine load_metadata
 
 function find_entry(this, name) result(idx)
-  class(io_recorder), intent(in) :: this
-  character(*), intent(in) :: name
+  class(io_recorder), intent(in) :: this       !< The state recorder class
+  character(*), intent(in) :: name             !< The name of the variable 
+
+  ! local variables
   integer :: idx
   integer :: i
 
@@ -302,9 +325,9 @@ function find_entry(this, name) result(idx)
 end function find_entry
 
 subroutine add_entry(this, name, type_name, offset)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name, type_name
-  integer(kind=int64), intent(in) :: offset
+  class(io_recorder), intent(inout) :: this     !< The state recorder class
+  character(*), intent(in) :: name, type_name   !< The name of the variable 
+  integer(kind=int64), intent(in) :: offset     !< The offset into the binary file
 
   this%n = this%n + 1
 
@@ -321,10 +344,11 @@ subroutine add_entry(this, name, type_name, offset)
 end subroutine add_entry
 
 subroutine add_realarray(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  type(RealArray_t), intent(in) :: val
+  class(io_recorder), intent(inout) :: this    !< The state recorder class
+  character(*), intent(in) :: name             !< The name of the variable
+  type(RealArray_t), intent(in) :: val         !< The RealArray_t array to write
 
+  ! local variables
   integer(kind=int64) :: pos
 
   ! --- Get current file position ---
@@ -339,22 +363,26 @@ subroutine add_realarray(this, name, val)
 end subroutine add_realarray
 
 subroutine get_realarray(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  type(RealArray_t), intent(inout) :: val
+  class(io_recorder), intent(inout) :: this  !< The state recorder class
+  character(*), intent(in) :: name           !< The name of the variable
+  type(RealArray_t), intent(inout) :: val    !< The RealArray_t array to read
 
+  ! local variables
   integer :: idx
   integer(kind=int64) :: pos
+  character(len=256) :: mesg
 
   ! --- Find metadata entry ---
   idx = this%find_entry(name)
   if (idx < 0) then
-    stop "get_realarray: variable not found: "//trim(name)
+    write(mesg,'("tim_helperF::get_realarray variable ",A," not found ")') TRIM(name)
+    call MOM_err(FATAL,mesg)
   endif
 
   ! --- Optional type check ---
   if (trim(this%entries(idx)%type_name) /= 'RealArray_t') then
-    stop "get_realarray: type mismatch"
+    write(mesg,'("tim_helperF::get_realarray variable ",A," type mismatch ")') TRIM(name)
+    call MOM_err(FATAL,mesg)
   endif
 
   pos = this%entries(idx)%offset
@@ -368,9 +396,9 @@ subroutine get_realarray(this, name, val)
 end subroutine get_realarray
 
 subroutine add_box(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  type(Box_T), intent(in) :: val
+  class(io_recorder), intent(inout) :: this     !< The state recorder class
+  character(*), intent(in) :: name              !< The name of the variable
+  type(Box_T), intent(in) :: val                !< The box_T to write
 
   integer(kind=int64) :: pos
 
@@ -381,20 +409,23 @@ subroutine add_box(this, name, val)
 end subroutine add_box
 
 subroutine get_box(this, name, val)
-  class(io_recorder), intent(inout) :: this
-  character(*), intent(in) :: name
-  type(Box_t), intent(inout) :: val
+  class(io_recorder), intent(inout) :: this   !< The state recorder class
+  character(*), intent(in) :: name            !< The name of the variable
+  type(Box_t), intent(inout) :: val           !< The box_T to read
 
   integer :: idx
   integer(kind=int64) :: pos
+  character(len=256) :: mesg
 
   idx = this%find_entry(name)
   if (idx < 0) then
-    stop "get_box: variable not found: "//trim(name)
+    write(mesg,'("tim_helperF::get_box variable ",A," not found ")') TRIM(name)
+    call MOM_err(FATAL,mesg)
   endif
 
   if (trim(this%entries(idx)%type_name) /= 'Box_t') then
-    stop "get_box: type mismatch"
+    write(mesg,'("tim_helperF::get_box variable ",A," type mismatch ")') TRIM(name)
+    call MOM_err(FATAL,mesg)
   endif
 
   pos = this%entries(idx)%offset
@@ -403,12 +434,15 @@ subroutine get_box(this, name, val)
 
   call val%read_binary(this%unit_bin)
 
-end subroutine
+end subroutine get_box
 
 subroutine close(this)
-  class(io_recorder), intent(inout) :: this
+  class(io_recorder), intent(inout) :: this   !< The state recorder class
+
+  ! Local array
   integer :: i
 
+  ! Write out the metadata
   if(this%type.eq.type_write) then 
     do i = 1, this%n
       write(this%unit_meta,'(A,1X,A,1X,I0)') &
@@ -418,6 +452,7 @@ subroutine close(this)
     enddo
   endif
 
+  ! Close the files 
   close(this%unit_bin)
   close(this%unit_meta)
 end subroutine close

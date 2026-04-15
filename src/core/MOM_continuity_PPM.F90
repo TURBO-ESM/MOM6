@@ -3053,7 +3053,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
              call rec%add("_h_R_before", h_R )
              call rec%add("_h_min", h_min)
            endif
-           
+
            ! Run Fortran truth
            call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 
@@ -3185,7 +3185,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
        case (TIMH_capture)
           capture = .FALSE.
           if((.not. already_recorded(TRIM(kernel))) .and. is_root_pe()) capture = .TRUE.
-          
+
           if(capture) then
             ! -----------WRITE DATA---------------------
             ! open a dump file to store an ArrayReal_t
@@ -3223,7 +3223,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
        case (TIMH_runAMREX)
 
           ! create C-compatible descriptors
-          bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_S_c = h_S_a%to_c(); 
+          bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_S_c = h_S_a%to_c();
           h_N_c = h_N_a%to_c(); mask2dT_c = mask2dT_a%to_c()
           if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
           ! Call C++ bridge to execute AMReX code
