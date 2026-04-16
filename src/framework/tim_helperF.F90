@@ -67,10 +67,10 @@ module tim_helperF
        procedure :: load_metadata    !< Read in the metadata file
        procedure :: find_entry       !< Query the locaiton of the variable in the binary
                                      !! capture file
-       generic   :: add => add_realarray, add_box, &  !< Generic interface to add a variable
-               add_real, add_integer, add_logical
-       generic   :: get => get_realarray, get_box, &  !< Generic interface for get a variable
-               get_real, get_integer, get_logical
+       !> Generic interface to add a variable
+       generic   :: add => add_realarray, add_box, add_real, add_integer, add_logical
+       !> Generic interface to get a variable
+       generic   :: get => get_realarray, get_box, get_real, get_integer, get_logical
    end type io_recorder
 
 contains
