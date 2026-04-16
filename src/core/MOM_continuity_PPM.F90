@@ -3177,6 +3177,8 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
     character(len=100) :: dir
     character(len=256) :: binFile, metaFile
 
+    kernel="ppm_reconstruction_y"
+
     mode = getenv_mode("PPM_RECONSTRUCTION_Y_MODE", default=TIMH_runFORTRAN)
 
     ! Call C++ bridge
