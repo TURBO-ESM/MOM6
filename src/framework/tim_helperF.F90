@@ -29,12 +29,15 @@ module tim_helperF
    integer, save :: n_recorded = 0
    integer, parameter :: type_read = 1, type_write = 2
 
+
+   !> Metadata describing a variable in a binary I/O stream
    type :: io_entry
      character(len=:), allocatable :: name         !< The name of a variable on which to perform IO
      character(len=:), allocatable :: type_name    !< The type of the variable
      integer(kind=int64) :: offset                 !< Byte offset in the binary output file
    end type io_entry
 
+   !> An I/O capture capability for individual variables
    type :: io_recorder
      integer :: unit_bin                       !< File unit for  binary file
      integer :: unit_meta                      !< File unit for  metadata file
