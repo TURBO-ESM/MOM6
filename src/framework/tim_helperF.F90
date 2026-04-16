@@ -40,7 +40,7 @@ module tim_helperF
      integer :: unit_meta                      !< File unit for  metadata file
      type(io_entry), allocatable :: entries(:) !< A description of each of the variables in the file
      integer :: n = 0                          !< Counter for number of variables in a file
-     integer :: type                           !< Indicates if an open operation is 
+     integer :: type                           !< Indicates if an open operation is
                                                !< for reading or writing
      contains
        procedure :: open_write       !< open metadata and binary files for writing
@@ -48,7 +48,7 @@ module tim_helperF
        procedure :: add_entry        !< Add variable descriptor to the metadata file
        procedure :: close            !< close the binary and metadata file
 
-       ! Write side 
+       ! Write side
        procedure :: add_realarray    !< Write a RealArray_t variable to the capture file
        procedure :: add_box          !< Write a Box_t variable to the capture file
        procedure :: add_real         !< Write a real scalar variable to the capture file
@@ -65,9 +65,9 @@ module tim_helperF
        procedure :: find_entry       !< Query the locaiton of the variable in the binary
                                      !! capture file
        generic   :: add => add_realarray, add_box, &  !< Generic interface to add a variable
-               add_real, add_integer, add_logical     !! to the capture file
-       generic   :: get => get_realarray, get_box, &  !< Generic interface to get a variable
-               get_real, get_integer, get_logical     !! from the capture file
+               add_real, add_integer, add_logical
+       generic   :: get => get_realarray, get_box, &  !< Generic interface for get a variable
+               get_real, get_integer, get_logical
    end type io_recorder
 
 contains
@@ -166,7 +166,7 @@ subroutine get_real(this, name, val)
   character(len=256) :: mesg
 
   idx = this%find_entry(name)
-  if (idx < 0) then 
+  if (idx < 0) then
      write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
      call MOM_err(FATAL,mesg)
   endif
@@ -235,7 +235,7 @@ subroutine get_logical(this, name, val)
   character(len=256) :: mesg
 
   idx = this%find_entry(name)
-  if (idx < 0) then 
+  if (idx < 0) then
      write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
      call MOM_err(FATAL,mesg)
   endif
@@ -309,7 +309,7 @@ end subroutine load_metadata
 
 function find_entry(this, name) result(idx)
   class(io_recorder), intent(in) :: this       !< The state recorder class
-  character(*), intent(in) :: name             !< The name of the variable 
+  character(*), intent(in) :: name             !< The name of the variable
 
   ! local variables
   integer :: idx
@@ -326,7 +326,7 @@ end function find_entry
 
 subroutine add_entry(this, name, type_name, offset)
   class(io_recorder), intent(inout) :: this     !< The state recorder class
-  character(*), intent(in) :: name, type_name   !< The name of the variable 
+  character(*), intent(in) :: name, type_name   !< The name of the variable
   integer(kind=int64), intent(in) :: offset     !< The offset into the binary file
 
   this%n = this%n + 1
@@ -443,7 +443,7 @@ subroutine close(this)
   integer :: i
 
   ! Write out the metadata
-  if(this%type.eq.type_write) then 
+  if(this%type.eq.type_write) then
     do i = 1, this%n
       write(this%unit_meta,'(A,1X,A,1X,I0)') &
         this%entries(i)%name, &
@@ -452,7 +452,7 @@ subroutine close(this)
     enddo
   endif
 
-  ! Close the files 
+  ! Close the files
   close(this%unit_bin)
   close(this%unit_meta)
 end subroutine close
