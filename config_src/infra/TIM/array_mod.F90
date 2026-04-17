@@ -8,6 +8,7 @@ module array_mod
   public :: RealArray_t, RealArray_c
   public :: IntArray_t
 
+  !< IntArray struct for C bridge
   type, bind(C) :: IntArray_C
      type(c_ptr) :: data
      type(c_ptr) :: shape
@@ -16,6 +17,7 @@ module array_mod
      integer(c_int) :: rank
   end type IntArray_C
 
+  !< RealArray struct for C bridge
   type, bind(C) :: RealArray_C
      type(c_ptr) :: data
      type(c_ptr) :: shape
@@ -44,8 +46,8 @@ module array_mod
                   copy2AReal3D, copy2AReal4D
      procedure :: dupReal1D, dupReal2D, &       !< Create a duplicate RealArray_t of a Fortran array
                   dupReal3D, dupReal4D
-     procedure :: write_binary
-     procedure :: read_binary
+     procedure :: write_binary                  !< write a variable to a binary file
+     procedure :: read_binary                   !< read a variable from a binary file
      generic :: copy2F => copy2FReal1D, &       !< Generic interface for copy to Fortran arrayc
                 copy2FReal2D, copy2FReal3d, &
                 copy2FReal4D
@@ -104,9 +106,10 @@ module array_mod
 
 contains
 
+!< Write a RealArray_t veriable to a binary file
 subroutine write_binary(this, unit)
-  class(RealArray_t), intent(in) :: this
-  integer,            intent(in) :: unit
+  class(RealArray_t), intent(in) :: this  !< The RealArray_t variable to write to a binary file
+  integer,            intent(in) :: unit  !< The file unit
 
   integer :: i
   integer :: n
@@ -138,11 +141,12 @@ subroutine write_binary(this, unit)
   ! --- Write payload ---
   write(unit) this%data
 
-end subroutine
+end subroutine write_binary
 
+!< Read a RealArray_t variable from a file
 subroutine read_binary(this, unit)
-  class(RealArray_t), intent(inout) :: this
-  integer,            intent(in)    :: unit
+  class(RealArray_t), intent(inout) :: this !< The RealArray_t variable to read from a binary file
+  integer,            intent(in)    :: unit !< The file unit
 
   integer :: i
   integer :: n
@@ -201,8 +205,7 @@ subroutine read_binary(this, unit)
     nullify(this%data)
   endif
 
-end subroutine
-
+end subroutine read_binary
 
 !< Function to convert a Fortran structure to a C structure
 function to_c_Real(this) result(cdesc)
@@ -228,6 +231,7 @@ function to_c_Int(this) result(cdesc)
   cdesc%rank  = this%rank
 end function to_c_Int
 
+!< Allocate memory for a RealArray_t container
 subroutine allocReal(this, dims,lb,ub,source)
   class(RealArray_t), intent(inout) :: this         !< The array container to allocate
   integer, intent(in),optional :: dims(:)           !< Dimensions (1-indexed)

@@ -18,10 +18,10 @@ use MOM_verticalGrid, only : verticalGrid_type
 use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
 use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_char, c_null_ptr
-use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
-use turbotmp_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
-          TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN
 use posix, only : mkdir_posix
+
+use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
 
 implicit none ; private
 
@@ -3037,7 +3037,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
 
            if(capture) then
              ! -----------WRITE DATA---------------------
-             ! open a dump file to store an ArrayReal_t
+             ! open a dump file subroutine arguments
              dir = "capture"
              rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
 
@@ -3058,6 +3058,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
            call ppm_limit_pos_fortran(bx,h_in, h_L, h_R, h_min)
 
            if(capture) then
+             ! Write out the output arguments
              call rec%add("_h_S_after", h_L)
              call rec%add("_h_N_after", h_R)
              ! Close the file
@@ -3069,7 +3070,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
            ! create C-compatible descriptors
            bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
            ! Call C++ bridge to execute AMReX code
-           call turbo_ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min)
+           call turbotmp_ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min)
 #endif
        case default
           ! Run Fortran code
@@ -3111,7 +3112,7 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
 
           if(capture) then
             ! -----------WRITE DATA---------------------
-            ! open a dump file to store an ArrayReal_t
+            ! open a dump file to capture arguments
             dir = "capture"
             rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
 
@@ -3131,6 +3132,7 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
           call ppm_limit_cw84_fortran(bx, h_in, h_L, h_R)
 
           if(capture) then
+            ! Write out the output arguments
             call rec%add("_h_S_after", h_L)
             call rec%add("_h_N_after", h_R)
             ! Close the file
@@ -3190,7 +3192,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
 
           if(capture) then
             ! -----------WRITE DATA---------------------
-            ! open a dump file to store an ArrayReal_t
+            ! open a file to capture arguments
             dir = "capture"
             rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
 
@@ -3215,6 +3217,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
           call ppm_reconstruction_y_fortran(bxH, h_in_a, h_S_a, h_N_a, &
                          mask2dT_a, h_min, monotonic, simple_2nd, OBC)
           if(capture) then
+            ! Write out the output arguments
             call rec%add("_h_S_after", h_S_a)
             call rec%add("_h_N_after", h_N_a)
             ! Close the file

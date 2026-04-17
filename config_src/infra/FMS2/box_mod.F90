@@ -24,16 +24,18 @@ module box_mod
                            !! both extents of box are increased by a fixed amount
      procedure   :: shrink !< Decrease the bounds of a box in one dimension
                            !! both extents of box are decreased by a fixed amount
-     procedure   :: write_binary
-     procedure   :: read_binary
+     procedure   :: write_binary !< Writes a box to disk
+     procedure   :: read_binary  !< Reads a box from disk
   end type Box_T
 
 contains
 
+!< Reads a box from a binary file
 subroutine read_binary(this, unit)
-  class(Box_t), intent(inout) :: this
-  integer,      intent(in)    :: unit
+  class(Box_t), intent(inout) :: this  !< The box_t varibale to read from disk
+  integer,      intent(in)    :: unit  !< The file unit of the binary file
 
+  ! local variables
   integer :: rank
 
   ! --- Read rank ---
@@ -59,12 +61,14 @@ subroutine read_binary(this, unit)
   read(unit) this%idxS
   read(unit) this%idxE
 
-end subroutine
+end subroutine read_binary
 
+!< Writes a box to a binary file
 subroutine write_binary(this, unit)
-  class(Box_t), intent(in) :: this
-  integer,      intent(in) :: unit
+  class(Box_t), intent(in) :: this  !< The box_t variable to write to disk
+  integer,      intent(in) :: unit  !< The file unit of the binary file
 
+  ! local variables
   integer :: rank
 
   ! --- Handle unassociated pointers ---

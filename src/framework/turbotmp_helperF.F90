@@ -1,4 +1,3 @@
-#include "timH.h"
 module turbotmp_helperF
 
   use MOM_string_functions, only : uppercase
@@ -11,15 +10,11 @@ module turbotmp_helperF
   implicit none
 
   logical, parameter :: use_AMREX = .TRUE.
-  integer, parameter :: TIMH_runAMREX   = TIMH_RUNAMREX_, &
-                        TIMH_capture    = TIMH_CAPTURE_, &
-                        TIMH_runFORTRAN = TIMH_RUNFORTRAN_
-  integer(c_int), parameter :: TIMH_CAPTURE_INPUT = TIMH_CAPTURE_INPUT_,  &
-                        TIMH_CAPTURE_OUTPUT = TIMH_CAPTURE_OUTPUT_, &
-                        TIMH_RUN = TIMH_RUN_
+  integer, parameter :: TIMH_runAMREX   = 101, &
+                        TIMH_capture    = 102, &
+                        TIMH_runFORTRAN = 103
 
    public :: TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
-   public :: TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN
    public :: getenv_mode
 
    public :: already_recorded, mark_recorded
@@ -75,9 +70,10 @@ module turbotmp_helperF
 
 contains
 
+  !< read environment variables that control control flow for the Shim layer
   function getenv_mode(name, default) result(mode)
-    character(len=*), intent(in) :: name
-    integer, intent(in), optional :: default
+    character(len=*), intent(in) :: name         !< The name of the environment variable 
+    integer, intent(in), optional :: default     !< The default value if environment variable not set
     integer :: mode
 
     character(len=:), allocatable :: str
@@ -118,6 +114,7 @@ contains
   end function getenv_mode
 
 
+  !< function that determins if a variable name has already been recorded
   logical function already_recorded(name)
     character(len=*), intent(in) :: name        !< Name of the variable to check status
     integer :: i
@@ -131,6 +128,7 @@ contains
     end do
   end function already_recorded
 
+  !< Mark that a particular variable has already been recorded
   subroutine mark_recorded(name)
     character(len=*), intent(in) :: name      !< Name of the variable to mark as areadly captured
 
@@ -144,6 +142,7 @@ contains
     end if
   end subroutine mark_recorded
 
+!< Record and write a variable of type real64
 subroutine add_real(this, name, val)
   class(io_recorder), intent(inout) :: this    !< The state recorder class
   character(*), intent(in) :: name             !< The name of the variable to write
@@ -158,6 +157,7 @@ subroutine add_real(this, name, val)
   write(this%unit_bin) val
 end subroutine add_real
 
+!< Read a variable of type real64
 subroutine get_real(this, name, val)
   class(io_recorder), intent(inout) :: this !< The state recorder class
   character(*), intent(in) :: name          !< The name of the variable to read
@@ -179,6 +179,7 @@ subroutine get_real(this, name, val)
   read(this%unit_bin, pos=pos) val
 end subroutine get_real
 
+!< Record and write a variable of type integer
 subroutine add_integer(this, name, val)
   class(io_recorder), intent(inout) :: this  !< The state recorder class
   character(*), intent(in) :: name           !< The name of the variable to write
@@ -193,6 +194,7 @@ subroutine add_integer(this, name, val)
   write(this%unit_bin) val
 end subroutine add_integer
 
+!< Read a variable of type integer
 subroutine get_integer(this, name, val)
   class(io_recorder), intent(inout) :: this   !< The state recorder class
   character(*), intent(in) :: name            !< The name of the variable to read
@@ -213,6 +215,7 @@ subroutine get_integer(this, name, val)
   read(this%unit_bin, pos=pos) val
 end subroutine get_integer
 
+!< Record and write a variable of type logical
 subroutine add_logical(this, name, val)
   class(io_recorder), intent(inout) :: this !< The state recorder class
   character(*), intent(in) :: name          !< The name of the variable to write
@@ -227,6 +230,7 @@ subroutine add_logical(this, name, val)
   write(this%unit_bin) val
 end subroutine add_logical
 
+!< Read a variable of type logical
 subroutine get_logical(this, name, val)
   class(io_recorder), intent(inout) :: this !< The state recorder class
   character(*), intent(in) :: name          !< The name of the variable to read
@@ -249,6 +253,7 @@ subroutine get_logical(this, name, val)
 
 end subroutine get_logical
 
+!< Open a capture file for writing 
 subroutine open_write(this, binfile, metafile)
   class(io_recorder), intent(inout) :: this
   character(*), intent(in) :: binfile    !< The name of the binary file to open for writing
@@ -264,6 +269,7 @@ subroutine open_write(this, binfile, metafile)
   this%n = 0
 end subroutine open_write
 
+!< Open a capture file for reading
 subroutine open_read(this, binfile, metafile)
   class(io_recorder), intent(inout) :: this
   character(*), intent(in) :: binfile    !< The name of the binary file to open for reading
@@ -281,6 +287,7 @@ subroutine open_read(this, binfile, metafile)
 
 end subroutine open_read
 
+!< Load a metadata file
 subroutine load_metadata(this)
   class(io_recorder), intent(inout) :: this   !< The state recorder class
 
@@ -310,6 +317,7 @@ subroutine load_metadata(this)
   100 continue
 end subroutine load_metadata
 
+!< Find an entry in the list of variables
 function find_entry(this, name) result(idx)
   class(io_recorder), intent(in) :: this       !< The state recorder class
   character(*), intent(in) :: name             !< The name of the variable
@@ -327,6 +335,7 @@ function find_entry(this, name) result(idx)
   enddo
 end function find_entry
 
+!< Add an entry into a list of variables
 subroutine add_entry(this, name, type_name, offset)
   class(io_recorder), intent(inout) :: this     !< The state recorder class
   character(*), intent(in) :: name, type_name   !< The name of the variable
@@ -346,6 +355,7 @@ subroutine add_entry(this, name, type_name, offset)
   this%entries(1)%offset = offset
 end subroutine add_entry
 
+!< Record and write a variable of type RealArray_t
 subroutine add_realarray(this, name, val)
   class(io_recorder), intent(inout) :: this    !< The state recorder class
   character(*), intent(in) :: name             !< The name of the variable
@@ -365,6 +375,7 @@ subroutine add_realarray(this, name, val)
 
 end subroutine add_realarray
 
+!< Read a variable of type RealArray_t
 subroutine get_realarray(this, name, val)
   class(io_recorder), intent(inout) :: this  !< The state recorder class
   character(*), intent(in) :: name           !< The name of the variable
@@ -398,6 +409,7 @@ subroutine get_realarray(this, name, val)
 
 end subroutine get_realarray
 
+!< Record and write a variable of type box_t
 subroutine add_box(this, name, val)
   class(io_recorder), intent(inout) :: this     !< The state recorder class
   character(*), intent(in) :: name              !< The name of the variable
@@ -411,6 +423,7 @@ subroutine add_box(this, name, val)
   call val%write_binary(this%unit_bin)
 end subroutine add_box
 
+!< Read a variable of type box_t
 subroutine get_box(this, name, val)
   class(io_recorder), intent(inout) :: this   !< The state recorder class
   character(*), intent(in) :: name            !< The name of the variable
@@ -439,6 +452,7 @@ subroutine get_box(this, name, val)
 
 end subroutine get_box
 
+!< Close the capture file
 subroutine close(this)
   class(io_recorder), intent(inout) :: this   !< The state recorder class
 

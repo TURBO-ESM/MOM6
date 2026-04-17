@@ -2,12 +2,12 @@ module array_mod
   use, intrinsic :: iso_fortran_env, only : real64
   use iso_c_binding, only : c_double, c_int, c_ptr, c_loc
   use MOM_error_infra, only : MOM_err, FATAL
-  ! use amrex_mempool_module, only : amrex_allocate, amrex_deallocate
   implicit none
   private
-  public :: RealArray_t, RealArray_c
+  public :: RealArray_t, RealArray_C
   public :: IntArray_t
 
+  !< Type IntArray_C for C++ bridge layer
   type, bind(C) :: IntArray_C
      type(c_ptr) :: data
      type(c_ptr) :: shape
@@ -16,6 +16,7 @@ module array_mod
      integer(c_int) :: rank
   end type IntArray_C
 
+  !< Type RealArray_C for C++ bridge layer
   type, bind(C) :: RealArray_C
      type(c_ptr) :: data
      type(c_ptr) :: shape
@@ -33,7 +34,6 @@ module array_mod
    contains
      procedure :: allocReal                    !< Allocate memory in container
      procedure :: freeReal                     !< Deallocates memory from a container
-     procedure :: to_c_Real                    !< Convert to a C compatible structure
      procedure :: viewReal1D, viewReal2D, &    !< Associates a Fortran pointer to an array container
                   viewReal3D, viewReal4D
      procedure :: allocReal1D, allocReal2D, &  !< Allocate memory and associate a fortran pointer
@@ -44,8 +44,8 @@ module array_mod
                   copy2AReal3D, copy2AReal4D
      procedure :: dupReal1D, dupReal2D, &       !< Create a duplicate RealArray_t of a Fortran array
                   dupReal3D, dupReal4D
-     procedure :: write_binary
-     procedure :: read_binary
+     procedure :: write_binary                  !< Writes variable to disk
+     procedure :: read_binary                   !< Reads  variable from disk
      generic :: copy2F => copy2FReal1D, &       !< Generic interface for copy to Fortran arrayc
                 copy2FReal2D, copy2FReal3d, &
                 copy2FReal4D
@@ -61,7 +61,6 @@ module array_mod
      generic :: dup => dupReal1D, &           !< Generic interface for duplicate
                 dupReal2D, dupReal3D, &
                 dupReal4D
-     generic :: to_c => to_c_Real             !< Generic interface for function to_c
      generic :: free => freeReal              !< Generic interface for deallocate
   end type RealArray_t
 
@@ -74,7 +73,6 @@ module array_mod
    contains
      procedure :: allocInt                   !< Allocates  memory in container
      procedure :: freeInt                    !< Deallocates memory from a container
-     procedure :: to_c_Int                   !< Convert to a C compatible structure
      procedure ::  viewInt1D,  viewInt2D, &   !< Associates a Fortran pointer to an array container
                    viewInt3D,  viewInt4D
      procedure :: allocInt1D, allocInt2D,  &  !< Allocates memory and associatea a Fortran pointer
@@ -98,16 +96,17 @@ module array_mod
      generic :: dup => dupInt1D, &           !< Generic interface for duplicate
                 dupInt2D, dupInt3D, &
                 dupInt4D
-     generic   :: to_c => to_c_Int         !< Generic interface for function to_c
      generic   :: free => freeInt          !< Generic interface for deallocate
   end type intArray_t
 
 contains
 
+!< This subroutine writes an RealArray_t variable to a binary file
 subroutine write_binary(this, unit)
-  class(RealArray_t), intent(in) :: this
-  integer,            intent(in) :: unit
+  class(RealArray_t), intent(in) :: this  !< The RealArray_t variable to write to disk
+  integer,            intent(in) :: unit  !< The file unit
 
+  ! local variables
   integer :: i
   integer :: n
 
@@ -140,10 +139,12 @@ subroutine write_binary(this, unit)
 
 end subroutine write_binary
 
+!< This subroutine reads an RealArray_t variable from a binary file
 subroutine read_binary(this, unit)
-  class(RealArray_t), intent(inout) :: this
-  integer,            intent(in)    :: unit
+  class(RealArray_t), intent(inout) :: this  !< The RealArray_t variable to read from disk
+  integer,            intent(in)    :: unit  !< the file unit
 
+  ! local variables
   integer :: i
   integer :: n
   integer :: total_size
@@ -204,28 +205,28 @@ subroutine read_binary(this, unit)
 end subroutine read_binary
 
 !< Function to convert a Fortran structure to a C structure
-function to_c_Real(this) result(cdesc)
-  class(RealArray_t), intent(in) :: this  !< RealArray_t structure to convert to C
-  type(RealArray_C) :: cdesc              !< Resulting C structure
-
-  cdesc%data  = c_loc(this%data(1))
-  cdesc%shape = c_loc(this%shape(1))
-  cdesc%lb    = c_loc(this%lb(1))
-  cdesc%ub    = c_loc(this%ub(1))
-  cdesc%rank  = this%rank
-end function to_c_Real
-
-!< Function to convert a Fortran structure to a C structure
-function to_c_Int(this) result(cdesc)
-  class(IntArray_t), intent(in) :: this    !< IntArray_t structure to convert to C
-  type(IntArray_C) :: cdesc                !< Resulting C structure
-
-  cdesc%data  = c_loc(this%data(1))
-  cdesc%shape = c_loc(this%shape(1))
-  cdesc%lb    = c_loc(this%lb(1))
-  cdesc%ub    = c_loc(this%ub(1))
-  cdesc%rank  = this%rank
-end function to_c_Int
+!function to_c_Real(this) result(cdesc)
+!  class(RealArray_t), intent(in) :: this  !< RealArray_t structure to convert to C
+!  type(RealArray_C) :: cdesc              !< Resulting C structure
+!
+!  cdesc%data  = c_loc(this%data(1))
+!  cdesc%shape = c_loc(this%shape(1))
+!  cdesc%lb    = c_loc(this%lb(1))
+!  cdesc%ub    = c_loc(this%ub(1))
+!  cdesc%rank  = this%rank
+!end function to_c_Real
+!
+!!< Function to convert a Fortran structure to a C structure
+!function to_c_Int(this) result(cdesc)
+!  class(IntArray_t), intent(in) :: this    !< IntArray_t structure to convert to C
+!  type(IntArray_C) :: cdesc                !< Resulting C structure
+!
+!  cdesc%data  = c_loc(this%data(1))
+!  cdesc%shape = c_loc(this%shape(1))
+!  cdesc%lb    = c_loc(this%lb(1))
+!  cdesc%ub    = c_loc(this%ub(1))
+!  cdesc%rank  = this%rank
+!end function to_c_Int
 
 subroutine allocReal(this, dims,lb,ub,source)
   class(RealArray_t), intent(inout) :: this         !< The array container to allocate
@@ -234,7 +235,6 @@ subroutine allocReal(this, dims,lb,ub,source)
   integer, intent(in),optional :: ub(:)             !< Upper bounds
   real(kind=real64), intent(in), optional :: source !< Initial value for all elements
 
-  ! if (associated(this%data)) call amrex_deallocate(this%data)
   if (associated(this%data))  deallocate(this%data)
   if (associated(this%shape)) deallocate(this%shape)
   if (associated(this%lb))    deallocate(this%lb)
@@ -264,7 +264,6 @@ subroutine allocReal(this, dims,lb,ub,source)
   endif
 
   ! allocate the memory
-  !call amrex_allocate(this%data,1,product(this%shape))
   allocate(this%data(product(this%shape)))
 
   ! initialize the variable
@@ -715,7 +714,6 @@ subroutine allocInt(this, dims,lb,ub,source)
 
   integer :: len                           !< the length of the array to allocate
 
-  ! if (associated(this%data)) call amrex_deallocate(this%data)
   if (associated(this%data)) deallocate(this%data)
   if (associated(this%shape)) deallocate(this%shape)
   if (associated(this%lb))    deallocate(this%lb)
@@ -745,7 +743,6 @@ subroutine allocInt(this, dims,lb,ub,source)
   endif
 
   ! allocate the memory
-  !call amrex_allocate(this%data,1,product(this%shape))
   allocate(this%data(product(this%shape)))
 
   ! initialize the variable
@@ -758,7 +755,6 @@ end subroutine allocInt
 subroutine freeReal(this)
   class(RealArray_t), intent(inout) :: this  !< The array container to deallocate
 
-  ! if (associated(this%data)) call amrex_deallocate(this%data)
   if (associated(this%data))  deallocate(this%data)
   if (associated(this%shape)) deallocate(this%shape)
   if (associated(this%lb))    deallocate(this%lb)
@@ -770,7 +766,6 @@ subroutine freeInt(this)
   class(IntArray_t), intent(inout) :: this  !< The array container to deallocate
 
   if (associated(this%data))  deallocate(this%data)
-  !if (associated(this%data))  call amrex_deallocate(this%data)
   if (associated(this%shape)) deallocate(this%shape)
   if (associated(this%lb))    deallocate(this%lb)
   if (associated(this%ub))    deallocate(this%ub)
