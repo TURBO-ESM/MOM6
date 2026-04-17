@@ -72,7 +72,7 @@ contains
 
   !< read environment variables that control control flow for the Shim layer
   function getenv_mode(name, default) result(mode)
-    character(len=*), intent(in) :: name         !< The name of the environment variable 
+    character(len=*), intent(in) :: name         !< The name of the environment variable
     integer, intent(in), optional :: default     !< The default value if environment variable not set
     integer :: mode
 
@@ -253,7 +253,7 @@ subroutine get_logical(this, name, val)
 
 end subroutine get_logical
 
-!< Open a capture file for writing 
+!< Open a capture file for writing
 subroutine open_write(this, binfile, metafile)
   class(io_recorder), intent(inout) :: this
   character(*), intent(in) :: binfile    !< The name of the binary file to open for writing
