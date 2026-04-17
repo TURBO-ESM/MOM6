@@ -18,8 +18,8 @@ use MOM_verticalGrid, only : verticalGrid_type
 use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
 use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_char, c_null_ptr
-use TIM_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
-use TIM_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
+use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN, &
           TIMH_CAPTURE_INPUT, TIMH_CAPTURE_OUTPUT, TIMH_RUN
 use posix, only : mkdir_posix
 
@@ -30,7 +30,7 @@ implicit none ; private
   !----------------------------------------
   interface
     !> Bridge for the PPM_limit_pos subroutine
-    subroutine ppm_limit_pos_bridge(bx, h_in, h_L, h_R, h_min) bind(C)
+    subroutine turbotmp_ppm_limit_pos_bridge(bx, h_in, h_L, h_R, h_min) bind(C)
        use iso_c_binding
        use array_mod, only : RealArray_c
        use box_mod,   only : Box_c
@@ -43,12 +43,12 @@ implicit none ; private
                                                 !! [H ~> m or kg m-2].
        real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
                                                 !! by a concave parabolic fit [H ~> m or kg m-2]
-    end subroutine ppm_limit_pos_bridge
+    end subroutine turbotmp_ppm_limit_pos_bridge
   end interface
 
   interface
     !> Bridge for the PPM_limit_cw84 subroutine
-    subroutine ppm_limit_cw84_bridge(bx, h_in, h_L, h_R) bind(C)
+    subroutine turbotmp_ppm_limit_cw84_bridge(bx, h_in, h_L, h_R) bind(C)
       use iso_c_binding
       use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
@@ -60,12 +60,12 @@ implicit none ; private
                                                 !! [H ~> m or kg m-2].
       type(RealArray_C), intent(inout)  :: h_R  !< Right thickness in the reconstruction
                                                 !! [H ~> m or kg m-2].
-    end subroutine ppm_limit_cw84_bridge
+    end subroutine turbotmp_ppm_limit_cw84_bridge
   end interface
 
   interface
     !> Bridge for the PPM_reconstruction_y subroutine
-    subroutine ppm_reconstruction_y_bridge(bx, h_in, h_S, h_N, mask2dT, &
+    subroutine turbotmp_ppm_reconstruction_y_bridge(bx, h_in, h_S, h_N, mask2dT, &
                                            h_min, monotonic, simple_2nd, obc) bind(C)
       use iso_c_binding
       use array_mod, only : RealArray_c
@@ -82,7 +82,7 @@ implicit none ; private
       integer(c_int), intent(in)        :: monotonic  !< Use CW84 limiter
       integer(c_int), intent(in)        :: simple_2nd !< Use 2nd order scheme
       type(c_ptr),    intent(in), value :: obc        !< Pointer to OBC structure
-    end subroutine ppm_reconstruction_y_bridge
+    end subroutine turbotmp_ppm_reconstruction_y_bridge
   end interface
 
 #include <MOM_memory.h>
@@ -3069,7 +3069,7 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
            ! create C-compatible descriptors
            bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
            ! Call C++ bridge to execute AMReX code
-           call ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min)
+           call turbo_ppm_limit_pos_bridge(bx_c, h_in_c, h_L_c, h_R_c, h_min)
 #endif
        case default
           ! Run Fortran code
@@ -3142,7 +3142,7 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
           ! Create C compatable descriptors
           bx_c = bx%to_c(); h_in_c = h_in%to_c(); h_L_c  = h_L%to_c(); h_R_c  = h_R%to_c()
           !  Call C+ bridge to execute AMReX code
-          call ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c)
+          call turbotmp_ppm_limit_cw84_bridge(bx_c, h_in_c, h_L_c, h_R_c)
 #endif
        case default
           ! Run Fortran code
@@ -3229,7 +3229,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
           h_N_c = h_N_a%to_c(); mask2dT_c = mask2dT_a%to_c()
           if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
           ! Call C++ bridge to execute AMReX code
-          call ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
+          call turbotmp_ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
                   h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd),OBC_c)
 #endif
        case default

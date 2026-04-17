@@ -1,5 +1,5 @@
 #include "timH.h"
-module tim_helperF
+module turbotmp_helperF
 
   use MOM_string_functions, only : uppercase
   use MOM_error_infra, only : MOM_err, FATAL
@@ -460,4 +460,4 @@ subroutine close(this)
   close(this%unit_meta)
 end subroutine close
 
-end module tim_helperF
+end module turbotmp_helperF
