@@ -17,7 +17,7 @@ use MOM_verticalGrid, only : verticalGrid_type
 
 use array_mod, only : RealArray_t, RealArray_c
 use box_mod, only : Box_t, Box_c
-use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_char, c_null_ptr
+use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_bool, c_null_char, c_null_ptr
 use posix, only : mkdir_posix
 
 use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
@@ -35,14 +35,14 @@ implicit none ; private
        use array_mod, only : RealArray_c
        use box_mod,   only : Box_c
        implicit none
-       type(Box_C), intent(in)          :: bx   !< Index space over which to iterate
-       type(RealArray_C), intent(in)    :: h_in !< Layer thickness [H ~> m or kg m-2].
-       type(RealArray_C), intent(inout) :: h_L  !< Left thickness in the reconstruction
-                                                !! [H ~> m or kg m-2].
-       type(RealArray_C), intent(inout) :: h_R  !< Right thickness in the reconstruction
-                                                !! [H ~> m or kg m-2].
-       real(c_double), intent(in) :: h_min      !< The minimum thickness that can be obtained
-                                                !! by a concave parabolic fit [H ~> m or kg m-2]
+       type(Box_C), intent(in)          :: bx    !< Index space over which to iterate
+       type(RealArray_C), intent(in)    :: h_in  !< Layer thickness [H ~> m or kg m-2].
+       type(RealArray_C), intent(inout) :: h_L   !< Left thickness in the reconstruction
+                                                 !! [H ~> m or kg m-2].
+       type(RealArray_C), intent(inout) :: h_R   !< Right thickness in the reconstruction
+                                                 !! [H ~> m or kg m-2].
+       real(c_double), intent(in),value :: h_min !< The minimum thickness that can be obtained
+                                                 !! by a concave parabolic fit [H ~> m or kg m-2]
     end subroutine turbotmp_ppm_limit_pos_bridge
   end interface
 
@@ -67,21 +67,20 @@ implicit none ; private
     !> Bridge for the PPM_reconstruction_y subroutine
     subroutine turbotmp_ppm_reconstruction_y_bridge(bx, h_in, h_S, h_N, mask2dT, &
                                            h_min, monotonic, simple_2nd, obc) bind(C)
-      use iso_c_binding
+      use iso_c_binding, only : c_double, c_bool, c_ptr
       use array_mod, only : RealArray_c
       use box_mod,   only : Box_c
       implicit none
 
-      type(Box_C), intent(in)           :: bx         !< Index space over which to iterate
-      type(RealArray_C), intent(in)     :: h_in       !< Layer thickness
-      type(RealArray_C), intent(inout)  :: h_S        !< South edge thickness
-      type(RealArray_C), intent(inout)  :: h_N        !< North edge thickness
-      type(RealArray_C), intent(in)     :: mask2dT    !< Mask (0 land, 1 ocean)
-
-      real(c_double), intent(in)        :: h_min      !< Minimum thickness
-      integer(c_int), intent(in)        :: monotonic  !< Use CW84 limiter
-      integer(c_int), intent(in)        :: simple_2nd !< Use 2nd order scheme
-      type(c_ptr),    intent(in), value :: obc        !< Pointer to OBC structure
+      type(Box_C), intent(in)            :: bx         !< Index space over which to iterate
+      type(RealArray_C), intent(in)      :: h_in       !< Layer thickness
+      type(RealArray_C), intent(inout)   :: h_S        !< South edge thickness
+      type(RealArray_C), intent(inout)   :: h_N        !< North edge thickness
+      type(RealArray_C), intent(in)      :: mask2dT    !< Mask (0 land, 1 ocean)
+      real(c_double),  intent(in), value :: h_min      !< Minimum thickness
+      logical(c_bool), intent(in), value :: monotonic  !< Use CW84 limiter
+      logical(c_bool), intent(in), value :: simple_2nd !< Use 2nd order scheme
+      type(c_ptr),     intent(in), value :: obc        !< Pointer to OBC structure
     end subroutine turbotmp_ppm_reconstruction_y_bridge
   end interface
 
@@ -3172,6 +3171,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
     type(Box_C) :: bx_c
     type(RealArray_C) :: h_in_c, h_S_c, h_N_c, mask2dT_c
     type(c_ptr) :: OBC_c
+    logical(c_bool) :: monotonic_c, simple_2nd_c
     integer :: rc
     type (io_recorder) :: rec
     logical :: capture
@@ -3230,10 +3230,11 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
           ! create C-compatible descriptors
           bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_S_c = h_S_a%to_c();
           h_N_c = h_N_a%to_c(); mask2dT_c = mask2dT_a%to_c()
+          monotonic_c = monotonic; simple_2nd_c = simple_2nd 
           if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
           ! Call C++ bridge to execute AMReX code
           call turbotmp_ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
-                  h_min, merge(1_c_int, 0_c_int,monotonic), merge(1_c_int, 0_c_int,simple_2nd),OBC_c)
+                  h_min, monotonic_c, simple_2nd_c,OBC_c)
 #endif
        case default
           ! Run Fortran code
