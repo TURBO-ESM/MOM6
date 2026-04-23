@@ -3230,7 +3230,7 @@ subroutine PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, h_min, mon
           ! create C-compatible descriptors
           bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_S_c = h_S_a%to_c();
           h_N_c = h_N_a%to_c(); mask2dT_c = mask2dT_a%to_c()
-          monotonic_c = monotonic; simple_2nd_c = simple_2nd 
+          monotonic_c = monotonic; simple_2nd_c = simple_2nd
           if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
           ! Call C++ bridge to execute AMReX code
           call turbotmp_ppm_reconstruction_y_bridge(bx_c, h_in_c, h_S_c, h_N_c, mask2dT_c, &
