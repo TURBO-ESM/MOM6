@@ -9,26 +9,26 @@ module array_mod
 
   !< Type IntArray_C for C++ bridge layer
   type, bind(C) :: IntArray_C
-     type(c_ptr) :: data
-     type(c_ptr) :: shape
-     type(c_ptr) :: lb
-     type(c_ptr) :: ub
-     integer(c_int) :: rank
+     type(c_ptr) :: data               !< Storage pointer for array container
+     type(c_ptr) :: shape              !< An array of dinmension extents
+     type(c_ptr) :: lb                 !< Lower bounds
+     type(c_ptr) :: ub                 !< Upper bounds
+     integer(c_int) :: rank            !< The number of dimensions
   end type IntArray_C
 
   !< Type RealArray_C for C++ bridge layer
   type, bind(C) :: RealArray_C
-     type(c_ptr) :: data
-     type(c_ptr) :: shape
-     type(c_ptr) :: lb
-     type(c_ptr) :: ub
-     integer(c_int) :: rank
+     type(c_ptr) :: data               !< Storage pointer for array container
+     type(c_ptr) :: shape              !< An array of dinmension extents
+     type(c_ptr) :: lb                 !< Lower bounds
+     type(c_ptr) :: ub                 !< Upper bounds
+     integer(c_int) :: rank            !< The number of dimensions
   end type RealArray_C
 
   type :: RealArray_t
      real(kind=real64), pointer, contiguous :: data(:) => null() !< Storage ptr for array container
-     integer :: rank = 0                            !< Rank of array
-     integer, pointer :: shape(:) => null()         !< Shape of array
+     integer :: rank = 0                            !< The number of dimensions
+     integer, pointer :: shape(:) => null()         !< An array of dimension extents
      integer, pointer :: lb(:) => null()            !< Lower bounds
      integer, pointer :: ub(:) => null()            !< Upper bounds
    contains
@@ -66,8 +66,8 @@ module array_mod
 
   type :: IntArray_t
      integer, pointer, contiguous :: data(:) => null() !< Storage ptr for array container
-     integer :: rank = 0                     !< Rank of array
-     integer, pointer :: shape(:) => null()  !< Shape of array
+     integer :: rank = 0                     !< The number of dimensions
+     integer, pointer :: shape(:) => null()  !< An array of dimension extents
      integer, pointer :: lb(:) => null()     !< Lower bounds
      integer, pointer :: ub(:) => null()     !< Upper bounds
    contains
