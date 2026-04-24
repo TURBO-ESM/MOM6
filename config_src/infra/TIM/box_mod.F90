@@ -122,7 +122,7 @@ subroutine set(this,idxS,idxE)
   integer, dimension(:), intent(in) :: idxS  !< The starting indices
   integer, dimension(:), intent(in) :: idxE  !< The ending indices
 
-  if(associated(this%idxS) .and. associated(this%idxS)) then 
+  if(associated(this%idxS) .and. associated(this%idxS)) then
     this%idxS(:)=idxS(:)
     this%idxE(:)=idxE(:)
   else
