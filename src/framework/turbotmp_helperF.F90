@@ -24,13 +24,6 @@ module turbotmp_helperF
    integer, save :: n_recorded = 0
    integer, parameter :: type_read = 1, type_write = 2
 
-   interface
-      subroutine tim_set_profile(level) bind(C)
-        use iso_c_binding
-        integer(c_int), value :: level
-      end subroutine
-  end interface
-
    !> Metadata describing a variable in a binary I/O stream
    type :: io_entry
      character(len=:), allocatable :: name         !< The name of a variable on which to perform IO
