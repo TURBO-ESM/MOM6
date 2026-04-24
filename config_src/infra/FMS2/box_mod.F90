@@ -1,5 +1,6 @@
 module box_mod
   use iso_c_binding, only : c_ptr, c_loc
+  use MOM_error_infra, only : MOM_err, FATAL
   implicit none
   private
 
@@ -123,8 +124,12 @@ subroutine set(this,idxS,idxE)
   integer, dimension(:), intent(in) :: idxS  !< The starting indices
   integer, dimension(:), intent(in) :: idxE  !< The ending indices
 
-  if(associated(this%idxS)) this%idxS(:)=idxS(:)
-  if(associated(this%idxE)) this%idxE(:)=idxE(:)
+  if(associated(this%idxS) .and. associated(this%idxS)) then
+    this%idxS(:)=idxS(:)
+    this%idxE(:)=idxE(:)
+  else
+    call MOM_err(FATAL, "class(box_t)%set index box must first be allocated")
+  endif
 
 end subroutine set
 
