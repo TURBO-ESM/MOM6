@@ -520,7 +520,7 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
 
   ! Define the h-grid iteration space
-  call bxH%alloc(ndims=3)
+  call bxH%safe_alloc(ndims=3)
   call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
 
   ! Define a local iteration space expanded one element in the i-dimension
@@ -599,7 +599,7 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
 
   ! Define the h-grid iteration space
-  call bxH%alloc(ndims=3)
+  call bxH%safe_alloc(ndims=3)
   call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
 
   ! Define a local iteration space expanded one element in the j-dimension
@@ -3058,8 +3058,8 @@ subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
 
            if(capture) then
              ! Write out the output arguments
-             call rec%add("_h_S_after", h_L)
-             call rec%add("_h_N_after", h_R)
+             call rec%add("_h_L_after", h_L)
+             call rec%add("_h_R_after", h_R)
              ! Close the file
              call rec%close()
              call mark_recorded(TRIM(kernel))
@@ -3132,8 +3132,8 @@ subroutine PPM_limit_cw84(bx, h_in, h_L, h_R)
 
           if(capture) then
             ! Write out the output arguments
-            call rec%add("_h_S_after", h_L)
-            call rec%add("_h_N_after", h_R)
+            call rec%add("_h_L_after", h_L)
+            call rec%add("_h_R_after", h_R)
             ! Close the file
             call rec%close()
             call mark_recorded(TRIM(kernel))

@@ -24,6 +24,12 @@ module turbotmp_helperF
    integer, save :: n_recorded = 0
    integer, parameter :: type_read = 1, type_write = 2
 
+   interface
+      subroutine tim_set_profile(level) bind(C)
+        use iso_c_binding
+        integer(c_int), value :: level
+      end subroutine
+  end interface
 
    !> Metadata describing a variable in a binary I/O stream
    type :: io_entry
@@ -206,9 +212,10 @@ subroutine get_integer(this, name, val)
   character(len=256) :: mesg
 
   idx = this%find_entry(name)
-  if (idx < 0) stop "get_integer: not found"
-     write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
+  if (idx < 0) then
+     write(mesg,'("tim_helperF::get_integer variable ",A," not found ")') TRIM(name)
      call MOM_err(FATAL,mesg)
+  endif
 
   pos = this%entries(idx)%offset
 
@@ -243,7 +250,7 @@ subroutine get_logical(this, name, val)
 
   idx = this%find_entry(name)
   if (idx < 0) then
-     write(mesg,'("tim_helperF::get_real variable ",A," not found ")') TRIM(name)
+     write(mesg,'("tim_helperF::get_logical variable ",A," not found ")') TRIM(name)
      call MOM_err(FATAL,mesg)
   endif
 

@@ -17,14 +17,14 @@ module box_mod
      integer, pointer :: idxS(:) => NULL()  !< Start index of a box
      integer, pointer :: idxE(:) => NULL()  !< End index of a box
   contains
-     procedure   :: alloc  !< allocate an index box
-     procedure   :: set    !< Sets the index range for the bocx
-     procedure   :: free   !< deallocates index box
-     procedure   :: to_c   !< Converts Box to C
-     procedure   :: grow   !< Increase the bounds of a box in one dimension
-                           !! both extents of box are increased by a fixed amount
-     procedure   :: shrink !< Decrease the bounds of a box in one dimension
-                           !! both extents of box are decreased by a fixed amount
+     procedure   :: safe_alloc   !< allocate an index box
+     procedure   :: set          !< Sets the index range for the bocx
+     procedure   :: free         !< deallocates index box
+     procedure   :: to_c         !< Converts Box to C
+     procedure   :: grow         !< Increase the bounds of a box in one dimension
+                                 !! both extents of box are increased by a fixed amount
+     procedure   :: shrink       !< Decrease the bounds of a box in one dimension
+                                 !! both extents of box are decreased by a fixed amount
      procedure   :: write_binary !< Writes a box to disk
      procedure   :: read_binary  !< Reads a box from disk
   end type Box_T
@@ -84,7 +84,7 @@ subroutine write_binary(this, unit)
 
   ! --- Consistency check ---
   if (size(this%idxE) /= rank) then
-    stop "Box_t%write_binary: idxS/idxE size mismatch"
+    call MOM_err(FATAL,"Box_t%write_binary: idxS/idxE size mismatch")
   endif
 
   ! --- Write rank ---
@@ -97,7 +97,7 @@ subroutine write_binary(this, unit)
 end subroutine write_binary
 
 !< Allocates an iteration box
-subroutine alloc(this,ndims)
+subroutine safe_alloc(this,ndims)
   class(Box_t), intent(inout) :: this   !< The box to be allocated
   integer, intent(in) :: ndims          !< The number of dimension in the box
 
@@ -107,7 +107,7 @@ subroutine alloc(this,ndims)
 
   allocate(this%idxS(ndims), source=0)
   allocate(this%idxE(ndims), source=0)
-end subroutine alloc
+end subroutine safe_alloc
 
 !< Allocates an iteration box
 subroutine free(this)
