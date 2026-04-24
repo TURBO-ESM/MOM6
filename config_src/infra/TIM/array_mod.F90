@@ -125,12 +125,12 @@ subroutine write_binary(this, unit)
   write(unit) n
 
   ! --- Write shape ---
-  do i = 1, n
+  do i=1,n
     write(unit) this%shape(i)
   enddo
 
   ! --- Write bounds ---
-  do i = 1, n
+  do i=1,n
     write(unit) this%lb(i)
     write(unit) this%ub(i)
   enddo
@@ -184,12 +184,12 @@ subroutine read_binary(this, unit)
   allocate(this%ub(n))
 
   ! --- Read shape ---
-  do i = 1, n
+  do i=1,n
     read(unit) this%shape(i)
   enddo
 
   ! --- Read bounds ---
-  do i = 1, n
+  do i=1,n
     read(unit) this%lb(i)
     read(unit) this%ub(i)
   enddo
