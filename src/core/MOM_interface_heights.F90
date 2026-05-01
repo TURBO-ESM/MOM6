@@ -5,13 +5,20 @@ module MOM_interface_heights
 
 use MOM_density_integrals, only : int_specific_vol_dp, avg_specific_vol
 use MOM_debugging,     only : hchksum
-use MOM_error_handler, only : MOM_error, FATAL
+use MOM_error_handler, only : MOM_error, FATAL, is_root_pe
 use MOM_EOS,           only : calculate_density, average_specific_vol, EOS_type, EOS_domain
 use MOM_file_parser,   only : log_version
 use MOM_grid,          only : ocean_grid_type
 use MOM_unit_scaling,  only : unit_scale_type
 use MOM_variables,     only : thermo_var_ptrs
 use MOM_verticalGrid,  only : verticalGrid_type
+
+use array_mod,        only : RealArray_t, RealArray_C
+use box_mod,          only : Box_t, Box_C
+use iso_c_binding,    only : c_double, c_int, c_ptr, c_loc, c_bool, c_null_char, c_null_ptr
+use posix,            only : mkdir_posix
+use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF, only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
 
 implicit none ; private
 
@@ -21,6 +28,31 @@ public find_eta, dz_to_thickness, thickness_to_dz, dz_to_thickness_simple
 public calc_derived_thermo
 public convert_MLD_to_ML_thickness
 public find_rho_bottom, find_col_avg_SpV
+
+  !----------------------------------------
+  ! C interface (bridge to C++)
+  !----------------------------------------
+  interface
+    !> Bridge for the thickness_to_dz_3d subroutine
+    subroutine turbotmp_thickness_to_dz_3d_bridge(bx, h, dz, spv_avg, &
+                                                  boussinesq, h_to_z, h_to_rz, has_spv) bind(C)
+       use iso_c_binding
+       use array_mod, only : RealArray_C
+       use box_mod,   only : Box_C
+       implicit none
+       type(Box_C),       intent(in)        :: bx         !< Index space over which to iterate
+       type(RealArray_C), intent(in)        :: h          !< Input layer thickness [H ~> m or kg m-2]
+       type(RealArray_C), intent(inout)     :: dz         !< Geometric layer thickness [Z ~> m]
+       type(RealArray_C), intent(in)        :: spv_avg    !< Layer-mean specific volume; valid
+                                                          !! only when has_spv is true
+       logical(c_bool),   intent(in), value :: boussinesq !< True if running in Boussinesq mode
+       real(c_double),    intent(in), value :: h_to_z     !< Conversion factor from H to Z [Z H-1]
+       real(c_double),    intent(in), value :: h_to_rz    !< Conversion factor from H to R*Z
+                                                          !! [R Z H-1]
+       logical(c_bool),   intent(in), value :: has_spv    !< True iff non-Boussinesq AND
+                                                          !! tv%SpV_avg is allocated
+    end subroutine turbotmp_thickness_to_dz_3d_bridge
+  end interface
 
 !> Calculates the heights of the free surface or all interfaces from layer thicknesses.
 interface find_eta
@@ -787,6 +819,12 @@ end subroutine dz_to_thickness_simple
 !> Converts layer thicknesses in thickness units to the vertical distance between edges in height
 !! units, perhaps by multiplication by the precomputed layer-mean specific volume stored in an
 !! array in the thermo_var_ptrs type when in non-Boussinesq mode.
+!!
+!! This is a runtime-dispatched shim that selects between (a) the original Fortran kernel,
+!! (b) a binary-capture mode that records inputs and outputs to disk for offline validation,
+!! and (c) a C++/AMReX bridge invoked via bind(C). The mode is selected per-process via the
+!! environment variable THICKNESS_TO_DZ_3D_MODE (FORTRAN | CAPTURE | AMREX). The default is
+!! FORTRAN; AMREX requires the build to be compiled with -D_TIM.
 subroutine thickness_to_dz_3d(h, tv, dz, G, GV, US, halo_size)
   type(ocean_grid_type),   intent(in)    :: G  !< The ocean's grid structure
   type(verticalGrid_type), intent(in)    :: GV !< The ocean's vertical grid structure
@@ -803,13 +841,29 @@ subroutine thickness_to_dz_3d(h, tv, dz, G, GV, US, halo_size)
                                                !! calculate thicknesses
   ! Local variables
   character(len=128) :: mesg    ! A string for error messages
-  integer :: i, j, k, is, ie, js, je, halo, nz
+  integer            :: halo, nz, mode, rc
+  type(Box_t)        :: bx
+  type(RealArray_t)  :: h_a, dz_a, spv_a
+  type(Box_C)        :: bx_c
+  type(RealArray_C)  :: h_c, dz_c, spv_c
+  logical(c_bool)    :: boussinesq_c, has_spv_c
+  real(c_double)     :: h_to_z_c, h_to_rz_c
+  type(io_recorder)  :: rec
+  logical            :: capture, has_spv
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+
+  kernel = "thickness_to_dz_3d"
 
   halo = 0 ; if (present(halo_size)) halo = max(0,halo_size)
-  is = G%isc-halo ; ie = G%iec+halo ; js = G%jsc-halo ; je = G%jec+halo ; nz = GV%ke
+  nz   = GV%ke
 
-  if ((.not.GV%Boussinesq) .and. allocated(tv%SpV_avg))  then
-    if ((allocated(tv%SpV_avg)) .and. (tv%valid_SpV_halo < halo)) then
+  has_spv = (.not.GV%Boussinesq) .and. allocated(tv%SpV_avg)
+
+  ! Halo-sufficiency check (relocated from kernel body per lessons §15)
+  if (has_spv) then
+    if (tv%valid_SpV_halo < halo) then
       if (tv%valid_SpV_halo < 0) then
         mesg = "invalid values of SpV_avg."
       else
@@ -818,17 +872,134 @@ subroutine thickness_to_dz_3d(h, tv, dz, G, GV, US, halo_size)
       endif
       call MOM_error(FATAL, "thickness_to_dz called in fully non-Boussinesq mode with "//trim(mesg))
     endif
-
-    do k=1,nz ; do j=js,je ; do i=is,ie
-      dz(i,j,k) = GV%H_to_RZ * h(i,j,k) * tv%SpV_avg(i,j,k)
-    enddo ; enddo ; enddo
-  else
-    do k=1,nz ; do j=js,je ; do i=is,ie
-      dz(i,j,k) = GV%H_to_Z * h(i,j,k)
-    enddo ; enddo ; enddo
   endif
 
+  ! Build iteration domain
+  call bx%safe_alloc(ndims=3)
+  call bx%set(idxS=[G%isc-halo, G%jsc-halo, 1], &
+              idxE=[G%iec+halo, G%jec+halo, nz])
+
+  ! Wrap raw Fortran arrays into RealArray_t containers
+  call h_a%dup(h)        ;  call h_a%copy2Array(h)
+  call dz_a%dup(dz)      ;  call dz_a%copy2Array(dz)
+
+  mode = getenv_mode("THICKNESS_TO_DZ_3D_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+    case (TIMH_capture)
+      capture = .FALSE.
+      if ((.not. already_recorded(TRIM(kernel))) .and. is_root_pe()) capture = .TRUE.
+
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(TRIM(dir) // c_null_char, int(o'755', c_int))
+
+        binFile  = TRIM(dir) // "/" // TRIM(kernel) // ".bin"
+        metaFile = TRIM(dir) // "/" // TRIM(kernel) // ".meta"
+
+        call rec%open_write(binFile, metaFile)
+
+        ! Write out the input arguments
+        call rec%add("_bx",         bx)
+        call rec%add("_h",          h_a)
+        call rec%add("_dz_before",  dz_a)
+        call rec%add("_boussinesq", GV%Boussinesq)
+        call rec%add("_h_to_z",     GV%H_to_Z)
+        call rec%add("_h_to_rz",    GV%H_to_RZ)
+        call rec%add("_has_spv",    has_spv)
+        if (has_spv) then
+          call spv_a%dup(tv%SpV_avg)  ; call spv_a%copy2Array(tv%SpV_avg)
+          call rec%add("_spv_avg",    spv_a)
+          call spv_a%free()
+        endif
+      endif
+
+      ! Run Fortran truth
+      call thickness_to_dz_3d_fortran(bx, h_a, tv, dz_a, GV)
+
+      if (capture) then
+        ! Write out the output arguments
+        call rec%add("_dz_after", dz_a)
+        ! Close the file
+        call rec%close()
+        call mark_recorded(TRIM(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      ! Build C-compatible descriptors and scalars
+      bx_c          = bx%to_c()
+      h_c           = h_a%to_c()
+      dz_c          = dz_a%to_c()
+      boussinesq_c  = GV%Boussinesq
+      h_to_z_c      = GV%H_to_Z
+      h_to_rz_c     = GV%H_to_RZ
+      has_spv_c     = has_spv
+
+      if (has_spv) then
+        call spv_a%dup(tv%SpV_avg)  ; call spv_a%copy2Array(tv%SpV_avg)
+      else
+        ! Placeholder so to_c() succeeds; bridge ignores when has_spv is false
+        call spv_a%alloc(dims=[1,1,1])
+      endif
+      spv_c = spv_a%to_c()
+
+      ! Call C++ bridge to execute AMReX code
+      call turbotmp_thickness_to_dz_3d_bridge(bx_c, h_c, dz_c, spv_c, &
+                                              boussinesq_c, h_to_z_c, h_to_rz_c, has_spv_c)
+
+      call spv_a%free()
+#endif
+
+    case default
+      ! Run native Fortran kernel (the safe default)
+      call thickness_to_dz_3d_fortran(bx, h_a, tv, dz_a, GV)
+  end select
+
+  ! Copy results back to the caller's Fortran array
+  call dz_a%copy2F(dz)
+
+  ! Cleanup
+  call h_a%free()
+  call dz_a%free()
+  call bx%free()
+
 end subroutine thickness_to_dz_3d
+
+!> Native-Fortran kernel for thickness_to_dz_3d. Same numerics as the original implementation,
+!! but takes Box_t / RealArray_t containers instead of raw arrays so it can be called both from
+!! the shim's "FORTRAN" and "CAPTURE" arms with identical inputs.
+subroutine thickness_to_dz_3d_fortran(bx, h_a, tv, dz_a, GV)
+  type(Box_t),             intent(in)    :: bx   !< Iteration domain
+  type(RealArray_t),       intent(in)    :: h_a  !< Input layer thickness container [H ~> m or kg m-2]
+  type(thermo_var_ptrs),   intent(in)    :: tv   !< A structure pointing to various
+                                                 !! thermodynamic variables (for SpV_avg)
+  type(RealArray_t),       intent(inout) :: dz_a !< Output geometric layer thickness container
+                                                 !! [Z ~> m]
+  type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure
+
+  ! Local variables
+  real, dimension(:,:,:), contiguous, pointer :: h, dz
+  integer :: i, j, k
+
+  call h_a%view(h)
+  call dz_a%view(dz)
+
+  if ((.not.GV%Boussinesq) .and. allocated(tv%SpV_avg))  then
+    do concurrent (k=bx%idxS(3):bx%idxE(3), &
+                   j=bx%idxS(2):bx%idxE(2), &
+                   i=bx%idxS(1):bx%idxE(1))
+      dz(i,j,k) = GV%H_to_RZ * h(i,j,k) * tv%SpV_avg(i,j,k)
+    enddo
+  else
+    do concurrent (k=bx%idxS(3):bx%idxE(3), &
+                   j=bx%idxS(2):bx%idxE(2), &
+                   i=bx%idxS(1):bx%idxE(1))
+      dz(i,j,k) = GV%H_to_Z * h(i,j,k)
+    enddo
+  endif
+
+end subroutine thickness_to_dz_3d_fortran
 
 
 !> Converts a vertical i- / k- slice of layer thicknesses in thickness units to the vertical
