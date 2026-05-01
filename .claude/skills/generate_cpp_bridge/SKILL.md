@@ -71,10 +71,24 @@ Each step is one action with a pointer to the lessons.md section that
 holds the template or rationale.
 
 ### 1. Clone the repo and run post-clone validation
-   **Populate the work directory:**
-   - If `$0` is empty, run `git clone git@github.com:TURBO-ESM/MOM6.git $0`.
+   **Populate the work directory.** All wrapping work in this skill is
+   based on the `dev/turbo-debug` branch — that is the agreed base for
+   bridge work and what the C++ side expects to merge against.
+
+   - If `$0` is empty, run
+     `git clone -b dev/turbo-debug git@github.com:TURBO-ESM/MOM6.git $0`.
    - If `$0` already contains a checkout of `TURBO-ESM/MOM6` (verify with
-     `git -C $0 remote -v`), reuse it as-is.
+     `git -C $0 remote -v`):
+     - Run `git -C $0 fetch origin dev/turbo-debug`.
+     - If the working tree is dirty (`git -C $0 status --porcelain` is
+       non-empty), stop and surface to the user — do not stash or
+       discard.
+     - If HEAD is not already at `origin/dev/turbo-debug` (compare
+       `git -C $0 rev-parse HEAD` and `git -C $0 rev-parse origin/dev/turbo-debug`),
+       stop and ask the user whether to `git checkout dev/turbo-debug`
+       in the existing tree before continuing. Do not switch branches
+       silently — the user may have unrelated work on the current
+       branch.
    - If `$0` is non-empty but not a TURBO-ESM/MOM6 checkout, stop and
      surface the conflict to the user — do not delete or overwrite.
 
@@ -148,11 +162,13 @@ holds the template or rationale.
    From the work directory, create (or check out, if it already exists)
    the branch `claude_$1_bridge` (use the lowercased function name so
    different functions land on different branches and can be committed
-   in parallel), stage every modified and newly created file, and commit
-   with a message that briefly summarizes the changes (the wrapped
-   subroutine name, the new bridge symbol, and the affected caller files)
-   and explicitly notes that the work is co-authored by Claude. Use a
-   HEREDOC so the trailer is preserved verbatim:
+   in parallel). Step 1 has already guaranteed HEAD is at
+   `dev/turbo-debug`, so the new branch will be based on it. Stage every
+   modified and newly created file, and commit with a message that
+   briefly summarizes the changes (the wrapped subroutine name, the new
+   bridge symbol, and the affected caller files) and explicitly notes
+   that the work is co-authored by Claude. Use a HEREDOC so the trailer
+   is preserved verbatim:
 
    ```
    BRANCH="claude_$(echo "$1" | tr '[:upper:]' '[:lower:]')_bridge"
