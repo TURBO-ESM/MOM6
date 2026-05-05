@@ -1,4 +1,4 @@
-#undef _TIM
+#define _TIM
 !> Solve the layer continuity equation using the PPM method for layer fluxes.
 module MOM_continuity_PPM
 
@@ -3347,10 +3347,12 @@ subroutine PPM_reconstruction_x(bxH, h_in_a, h_W_a, h_E_a, mask2dT_a, h_min, mon
 #ifdef _TIM
        case (TIMH_runAMREX)
 
+          ! create C-compatible descriptors
           bx_c = bxH%to_c(); h_in_c = h_in_a%to_c(); h_W_c = h_W_a%to_c();
           h_E_c = h_E_a%to_c(); mask2dT_c = mask2dT_a%to_c()
           monotonic_c = monotonic; simple_2nd_c = simple_2nd
           if(associated(OBC)) then; OBC_c = c_loc(OBC); else; OBC_c = c_null_ptr; endif
+          ! Call C++ bridge to execute AMReX cod
           call turbotmp_ppm_reconstruction_x_bridge(bx_c, h_in_c, h_W_c, h_E_c, mask2dT_c, &
                   h_min, monotonic_c, simple_2nd_c, OBC_c)
 #endif
