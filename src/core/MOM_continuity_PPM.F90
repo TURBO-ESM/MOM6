@@ -615,7 +615,7 @@ subroutine meridional_edge_thickness(bxC, h_in, h_S, h_N, G, GV, US, CS, OBC)
 
   ! Local variables
   integer :: i, j, k
-  type(Box_t)  :: bx 
+  type(Box_t)  :: bx
   type(RealArray_t) :: h_in_a, h_S_a, h_N_a, mask2dT_a
 
   call cpu_clock_begin(id_clock_reconstruct)
@@ -3001,7 +3001,7 @@ function set_continuity_box(G, GV, CS, i_stencil, j_stencil) result(box)
                                              !! by the stencil width of the continuity scheme.
   logical,       optional, intent(in) :: j_stencil !< If present and true, extend the j-loop bounds
                                              !! by the stencil width of the continuity scheme.
-  type(box_t) :: box                         !< The iteration box 
+  type(box_t) :: box                         !< The iteration box
 
   ! Local variables
   logical :: add_i_stencil, add_j_stencil ! Local variables set based on i_stencil and j_stensil
