@@ -115,6 +115,7 @@ public continuity_zonal_convergence, continuity_merdional_convergence
 public zonal_flux_thickness, meridional_flux_thickness
 public zonal_BT_mass_flux, meridional_BT_mass_flux
 public set_continuity_loop_bounds
+public set_continuity_box
 
 !>@{ CPU time clock IDs
 integer :: id_clock_reconstruct, id_clock_update, id_clock_correct
@@ -236,6 +237,7 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
   real :: h_N(SZI_(G),SZJ_(G),SZK_(GV)) ! North edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
   real :: h_min  ! The minimum layer thickness [H ~> m or kg m-2].  h_min could be 0.
   type(cont_loop_bounds_type) :: LB ! A type indicating the loop range for a phase of the updates
+  type(box_t) :: bxC                ! An iteration box
   logical :: x_first
 
   h_min = GV%Angstrom_H
@@ -251,34 +253,41 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
 
   if (x_first) then
     !  First advect zonally, with loop bounds that accomodate the subsequent meridional advection.
-    LB = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.true.)
-    call zonal_edge_thickness(hin, h_W, h_E, G, GV, US, CS, OBC, LB)
+    LB  = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.true.)
+    bxC = set_continuity_box(G,GV, CS, i_stencil=.false., j_stencil=.true.)
+    call zonal_edge_thickness(bxC, hin, h_W, h_E, G, GV, US, CS, OBC)
     call zonal_mass_flux(u, hin, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU, &
                          LB, uhbt, visc_rem_u, u_cor, BT_cont, du_cor)
     call continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin)
 
     !  Now advect meridionally, using the updated thicknesses to determine the fluxes.
-    LB = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
-    call meridional_edge_thickness(h, h_S, h_N, G, GV, US, CS, OBC, LB)
+    LB  = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
+    bxC = set_continuity_box(G, GV, CS, i_stencil=.false., j_stencil=.false.)
+    call meridional_edge_thickness(bxC, h, h_S, h_N, G, GV, US, CS, OBC)
     call meridional_mass_flux(v, h, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV, &
                               LB, vhbt, visc_rem_v, v_cor, BT_cont, dv_cor)
     call continuity_merdional_convergence(h, vh, dt, G, GV, LB, hmin=h_min)
 
   else  ! .not. x_first
     !  First advect meridionally, with loop bounds that accomodate the subsequent zonal advection.
-    LB = set_continuity_loop_bounds(G, CS, i_stencil=.true., j_stencil=.false.)
-    call meridional_edge_thickness(hin, h_S, h_N, G, GV, US, CS, OBC, LB)
+    LB  = set_continuity_loop_bounds(G, CS, i_stencil=.true., j_stencil=.false.)
+    bxC = set_continuity_box(G, GV, CS, i_stencil=.true., j_stencil=.false.)
+    call meridional_edge_thickness(bxC, hin, h_S, h_N, G, GV, US, CS, OBC)
     call meridional_mass_flux(v, hin, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV, &
                               LB, vhbt, visc_rem_v, v_cor, BT_cont, dv_cor)
     call continuity_merdional_convergence(h, vh, dt, G, GV, LB, hin)
 
     !  Now advect zonally, using the updated thicknesses to determine the fluxes.
-    LB = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
-    call zonal_edge_thickness(h, h_W, h_E, G, GV, US, CS, OBC, LB)
+    LB  = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
+    bxC = set_continuity_box(G, GV, CS, i_stencil=.false., j_stencil=.false.)
+    call zonal_edge_thickness(bxC, h, h_W, h_E, G, GV, US, CS, OBC)
     call zonal_mass_flux(u, h, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU, &
                          LB, uhbt, visc_rem_u, u_cor, BT_cont, du_cor)
     call continuity_zonal_convergence(h, uh, dt, G, GV, LB, hmin=h_min)
   endif
+
+  ! Free the continuity solver iteration box
+  call bxC%free()
 
 end subroutine continuity_PPM
 
@@ -312,12 +321,19 @@ subroutine continuity_3d_fluxes(u, v, h, uh, vh, dt, G, GV, US, CS, OBC, pbv)
   real :: h_E(SZI_(G),SZJ_(G),SZK_(GV)) ! East edge thicknesses in the zonal PPM reconstruction [H ~> m or kg m-2]
   real :: h_S(SZI_(G),SZJ_(G),SZK_(GV)) ! South edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
   real :: h_N(SZI_(G),SZJ_(G),SZK_(GV)) ! North edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
+  type (box_t) :: bxC                   ! Iteration box for the continuity solver
 
-  call zonal_edge_thickness(h, h_W, h_E, G, GV, US, CS, OBC)
+  ! Construct the iteration box
+  bxC = set_continuity_box(G,GV, CS)
+
+  call zonal_edge_thickness(bxC, h, h_W, h_E, G, GV, US, CS, OBC)
   call zonal_mass_flux(u, h, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU)
 
-  call meridional_edge_thickness(h, h_S, h_N, G, GV, US, CS, OBC)
+  call meridional_edge_thickness(bxC, h, h_S, h_N, G, GV, US, CS, OBC)
   call meridional_mass_flux(v, h, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV)
+
+  ! Free the continuity solver iteration box
+  call bxC%free()
 
 end subroutine continuity_3d_fluxes
 
@@ -351,12 +367,19 @@ subroutine continuity_2d_fluxes(u, v, h, uhbt, vhbt, dt, G, GV, US, CS, OBC, pbv
   real :: h_E(SZI_(G),SZJ_(G),SZK_(GV)) ! East edge thicknesses in the zonal PPM reconstruction [H ~> m or kg m-2]
   real :: h_S(SZI_(G),SZJ_(G),SZK_(GV)) ! South edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
   real :: h_N(SZI_(G),SZJ_(G),SZK_(GV)) ! North edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
+  type (box_t) :: bxC                   ! Iteration box for the continuity solver
 
-  call zonal_edge_thickness(h, h_W, h_E, G, GV, US, CS, OBC)
+  ! Construct the iteration box
+  bxC = set_continuity_box(G,GV, CS)
+
+  call zonal_edge_thickness(bxC, h, h_W, h_E, G, GV, US, CS, OBC)
   call zonal_BT_mass_flux(u, h, h_W, h_E, uhbt, dt, G, GV, US, CS, OBC, pbv%por_face_areaU)
 
-  call meridional_edge_thickness(h, h_S, h_N, G, GV, US, CS, OBC)
+  call meridional_edge_thickness(bxC, h, h_S, h_N, G, GV, US, CS, OBC)
   call meridional_BT_mass_flux(v, h, h_S, h_N, vhbt, dt, G, GV, US, CS, OBC, pbv%por_face_areaV)
+
+  ! Free the continuity solver iteration box
+  call bxC%free()
 
 end subroutine continuity_2d_fluxes
 
@@ -416,19 +439,25 @@ subroutine continuity_adjust_vel(u, v, h, dt, G, GV, US, CS, OBC, pbv, uhbt, vhb
   real :: h_E(SZI_(G),SZJ_(G),SZK_(GV)) ! East edge thicknesses in the zonal PPM reconstruction [H ~> m or kg m-2]
   real :: h_S(SZI_(G),SZJ_(G),SZK_(GV)) ! South edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
   real :: h_N(SZI_(G),SZJ_(G),SZK_(GV)) ! North edge thicknesses in the meridional PPM reconstruction [H ~> m or kg m-2]
+  type (box_t) :: bxC                   ! Iteration box for continuity solver
 
   ! It might not be necessary to separate the input velocity array from the adjusted velocities,
   ! but it seems safer to do so, even if it might be less efficient.
   u_in(:,:,:) = u(:,:,:)
   v_in(:,:,:) = v(:,:,:)
 
-  call zonal_edge_thickness(h, h_W, h_E, G, GV, US, CS, OBC)
+  bxC = set_continuity_box(G,GV, CS)
+
+  call zonal_edge_thickness(bxC, h, h_W, h_E, G, GV, US, CS, OBC)
   call zonal_mass_flux(u_in, h, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU, &
                        uhbt=uhbt, visc_rem_u=visc_rem_u, u_cor=u)
 
-  call meridional_edge_thickness(h, h_S, h_N, G, GV, US, CS, OBC)
+  call meridional_edge_thickness(bxC, h, h_S, h_N, G, GV, US, CS, OBC)
   call meridional_mass_flux(v_in, h, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV, &
                             vhbt=vhbt, visc_rem_v=visc_rem_v, v_cor=v)
+
+  ! Free the continuity solver iteration box
+  call bxC%free()
 
 end subroutine continuity_adjust_vel
 
@@ -511,7 +540,8 @@ end subroutine continuity_merdional_convergence
 
 
 !> Set the reconstructed thicknesses at the eastern and western edges of tracer cells.
-subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
+subroutine zonal_edge_thickness(bxC, h_in, h_W, h_E, G, GV, US, CS, OBC)
+  type(box_t), intent(in) :: bxC                 !< Iteration box for continuity solver
   type(ocean_grid_type),   intent(in)    :: G    !< Ocean's grid structure.
   type(verticalGrid_type), intent(in)    :: GV   !< Ocean's vertical grid structure.
   real,  dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
@@ -523,57 +553,21 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
   type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
   type(continuity_PPM_CS), intent(in)    :: CS   !< This module's control structure.
   type(ocean_OBC_type),    pointer       :: OBC  !< Open boundaries control structure.
-  type(cont_loop_bounds_type), &
-                 optional, intent(in)    :: LB_in !< Loop bounds structure.
 
-  ! Local variables
-  type(cont_loop_bounds_type) :: LB
-  integer :: i, j, k, ish, ieh, jsh, jeh, nz
-  integer :: isl, iel, jsl, jel, stencil
-  type(Box_t) :: bx, bxH
-  character(len=256) :: mesg
+  integer :: i, j, k
+  type(Box_t) :: bx
   type(RealArray_t) :: h_in_a, h_W_a, h_E_a, mask2dT_a
-
-  if (present(LB_in)) then
-    LB = LB_in
-  else
-    LB%ish = G%isc ; LB%ieh = G%iec ; LB%jsh = G%jsc ; LB%jeh = G%jec
-  endif
-  ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
-
-  ! Define the h-grid iteration space
-  call bxH%safe_alloc(ndims=3)
-  call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
-
-  ! Define a local iteration space expanded one element in the i-dimension
-  bx = bxH%grow(dim=1,n=1)
-
-  ! This is the stencil of the reconstruction, not the scheme overall.
-  stencil = 2 ; if (CS%simple_2nd) stencil = 1
-
-  ! Check see if the x and y-halo are sufficient before attempting
-  ! to call PPM_reconstruction_x
-  isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
-  if ((isl-stencil < G%isd) .or. (iel+stencil > G%ied)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-               & "x-halo that needs to be increased by ",i2,".")') &
-               stencil + max(G%isd-isl,iel-G%ied)
-    call MOM_error(FATAL,mesg)
-  endif
-  if ((jsl < G%jsd) .or. (jel > G%jed)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_x called with a ", &
-               & "y-halo that needs to be increased by ",i2,".")') &
-               max(G%jsd-jsl,jel-G%jed)
-    call MOM_error(FATAL,mesg)
-  endif
 
   call cpu_clock_begin(id_clock_reconstruct)
 
   if (CS%upwind_1st) then
-
+    ! Define a local iteration space expanded one element in the i-dimension
+    bx = bxC%grow(dim=1,n=1)
     do concurrent (k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
       h_W(i,j,k) = h_in(i,j,k) ; h_E(i,j,k) = h_in(i,j,k)
     enddo
+    ! Free memory associated with index boxes
+    call bx%free()
   else
       ! Duplicate the arrays
       call h_in_a%dup(h_in)
@@ -586,15 +580,12 @@ subroutine zonal_edge_thickness(h_in, h_W, h_E, G, GV, US, CS, OBC, LB_in)
       call mask2dT_a%copy2Array(G%mask2dT)
 
       ! Calculate the reconstruction
-      call PPM_reconstruction_x(bxH, h_in_a, h_W_a, h_E_a, mask2dT_a, &
+      call PPM_reconstruction_x(bxC, h_in_a, h_W_a, h_E_a, mask2dT_a, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
       call h_W_a%copy2F(h_W)
       call h_E_a%copy2F(h_E)
   endif
 
-  ! Free memory associated with index boxes
-  call bx%free()
-  call bxH%free()
 
   call cpu_clock_end(id_clock_reconstruct)
 
@@ -608,7 +599,8 @@ end subroutine zonal_edge_thickness
 
 
 !> Set the reconstructed thicknesses at the eastern and western edges of tracer cells.
-subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
+subroutine meridional_edge_thickness(bxC, h_in, h_S, h_N, G, GV, US, CS, OBC)
+  type(box_t), intent(in) :: bxC                 !< Iteration box for continuity solver
   type(ocean_grid_type),   intent(in)    :: G    !< Ocean's grid structure.
   type(verticalGrid_type), intent(in)    :: GV   !< Ocean's vertical grid structure.
   real,  dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
@@ -620,55 +612,22 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
   type(continuity_PPM_CS), intent(in)    :: CS   !< This module's control structure.
   type(ocean_OBC_type),    pointer       :: OBC  !< Open boundaries control structure.
-  type(cont_loop_bounds_type), &
-                 optional, intent(in)    :: LB_in !< Loop bounds structure.
 
   ! Local variables
-  type(cont_loop_bounds_type) :: LB
-  integer :: i, j, k, ish, ieh, jsh, jeh, nz
-  integer :: isl,iel,jsl,jel, stencil
-  type(Box_t)  :: bx, bxH
-  character(len=256) :: mesg
+  integer :: i, j, k
+  type(Box_t)  :: bx 
   type(RealArray_t) :: h_in_a, h_S_a, h_N_a, mask2dT_a
-
-
-  if (present(LB_in)) then
-    LB = LB_in
-  else
-    LB%ish = G%isc ; LB%ieh = G%iec ; LB%jsh = G%jsc ; LB%jeh = G%jec
-  endif
-  ish = LB%ish ; ieh = LB%ieh ; jsh = LB%jsh ; jeh = LB%jeh ; nz = GV%ke
-
-  ! Define the h-grid iteration space
-  call bxH%safe_alloc(ndims=3)
-  call bxH%set(idxS=[ish,jsh,1],idxE=[ieh,jeh,nz])
-
-  ! Define a local iteration space expanded one element in the j-dimension
-  bx = bxH%grow(dim=2,n=1)
-
-  ! Check see if the x and y-halo are sufficient before attempting
-  ! to call PPM_reconstruction_x
-  stencil = 2 ; if (CS%simple_2nd) stencil = 1
-  isl = LB%ish-1 ; iel = LB%ieh+1 ; jsl = LB%jsh ; jel = LB%jeh
-  if ((isl < G%isd) .or. (iel > G%ied)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-               & "x-halo that needs to be increased by ",i2,".")') &
-               max(G%isd-isl,iel-G%ied)
-    call MOM_error(FATAL,mesg)
-  endif
-  if ((jsl-stencil < G%jsd) .or. (jel+stencil > G%jed)) then
-    write(mesg,'("In MOM_continuity_PPM, PPM_reconstruction_y called with a ", &
-                 & "y-halo that needs to be increased by ",i2,".")') &
-                 stencil + max(G%jsd-jsl,jel-G%jed)
-    call MOM_error(FATAL,mesg)
-  endif
 
   call cpu_clock_begin(id_clock_reconstruct)
 
   if (CS%upwind_1st) then
+    ! Define a local iteration space expanded one element in the j-dimension
+    bx = bxC%grow(dim=2,n=1)
     do concurrent(k=bx%idxS(3):bx%idxE(3),j=bx%idxS(2):bx%idxE(2),i=bx%idxS(1):bx%idxE(1))  ! Local box (bx)
       h_S(i,j,k) = h_in(i,j,k) ; h_N(i,j,k) = h_in(i,j,k)
     enddo
+    ! Free up iteration space boxe
+    call bx%free()
   else
       ! Duplicate the arrays
       call h_in_a%dup(h_in)
@@ -681,7 +640,7 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
       call mask2dT_a%copy2Array(G%mask2dT)
 
       ! Calculate the reconstruction
-      call PPM_reconstruction_y(bxH, h_in_a, h_S_a, h_N_a, mask2dT_a, &
+      call PPM_reconstruction_y(bxC, h_in_a, h_S_a, h_N_a, mask2dT_a, &
                                 2.0*GV%Angstrom_H, CS%monotonic, CS%simple_2nd, OBC)
       call h_S_a%copy2F(h_S)
       call h_N_a%copy2F(h_N)
@@ -694,10 +653,6 @@ subroutine meridional_edge_thickness(h_in, h_S, h_N, G, GV, US, CS, OBC, LB_in)
   call h_S_a%free()
   call h_N_a%free()
   call mask2dT_a%free()
-
-  ! Free up iteration space boxes
-  call bx%free()
-  call bxH%free()
 
 end subroutine meridional_edge_thickness
 
@@ -3035,6 +2990,48 @@ function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
   endif
 
 end function set_continuity_loop_bounds
+
+!> Set up a structure that stores the sizes of the i- and j-loops to to work on in the continuity solver.
+function set_continuity_box(G, GV, CS, i_stencil, j_stencil) result(box)
+  type(ocean_grid_type),   intent(in) :: G   !< The ocean's grid structure.
+  type(verticalGrid_type), intent(in) :: GV  !< Vertical grid structure.
+
+  type(continuity_PPM_CS), intent(in) :: CS  !< Module's control structure.
+  logical,       optional, intent(in) :: i_stencil !< If present and true, extend the i-loop bounds
+                                             !! by the stencil width of the continuity scheme.
+  logical,       optional, intent(in) :: j_stencil !< If present and true, extend the j-loop bounds
+                                             !! by the stencil width of the continuity scheme.
+  type(box_t) :: box                         !< The iteration box 
+
+  ! Local variables
+  logical :: add_i_stencil, add_j_stencil ! Local variables set based on i_stencil and j_stensil
+  integer :: stencil    ! The continuity solver stencil size with the current continuity scheme.
+  integer :: is, ie, js, je
+
+  add_i_stencil = .false. ; if (present(i_stencil)) add_i_stencil = i_stencil
+  add_j_stencil = .false. ; if (present(j_stencil)) add_j_stencil = j_stencil
+
+  stencil = continuity_PPM_stencil(CS)
+
+  ! Allocate a 3 dimension iteration box
+  call box%safe_alloc(ndims=3)
+
+  if (add_i_stencil) then
+    is = G%isc-stencil ; ie = G%iec+stencil
+  else
+    is = G%isc ; ie = G%iec
+  endif
+
+  if (add_j_stencil) then
+    js = G%jsc-stencil ; je = G%jec+stencil
+  else
+    js = G%jsc ; je = G%jec
+  endif
+
+  ! Set the extents of the iteraiton space
+  call box%set(idxS=[is,js,1],idxE=[ie,je,GV%ke])
+
+end function set_continuity_box
 
 !< shim for PPM_limit_pos
 subroutine PPM_limit_pos(bx, h_in, h_L, h_R, h_min)
