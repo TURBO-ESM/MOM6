@@ -111,7 +111,7 @@ public continuity_PPM, continuity_PPM_init, continuity_PPM_stencil
 public continuity_fluxes, continuity_adjust_vel
 public zonal_mass_flux, meridional_mass_flux
 public zonal_edge_thickness, meridional_edge_thickness
-public continuity_zonal_convergence, continuity_merdional_convergence
+public continuity_zonal_convergence, continuity_meridional_convergence
 public zonal_flux_thickness, meridional_flux_thickness
 public zonal_BT_mass_flux, meridional_BT_mass_flux
 public set_continuity_loop_bounds
@@ -258,7 +258,7 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
     call zonal_edge_thickness(bxC, hin, h_W, h_E, G, GV, US, CS, OBC)
     call zonal_mass_flux(u, hin, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU, &
                          LB, uhbt, visc_rem_u, u_cor, BT_cont, du_cor)
-    call continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin)
+    call continuity_zonal_convergence(bxC, h, uh, dt, G, GV, hin=hin)
 
     !  Now advect meridionally, using the updated thicknesses to determine the fluxes.
     LB  = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
@@ -266,7 +266,7 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
     call meridional_edge_thickness(bxC, h, h_S, h_N, G, GV, US, CS, OBC)
     call meridional_mass_flux(v, h, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV, &
                               LB, vhbt, visc_rem_v, v_cor, BT_cont, dv_cor)
-    call continuity_merdional_convergence(h, vh, dt, G, GV, LB, hmin=h_min)
+    call continuity_meridional_convergence(bxC, h, vh, dt, G, GV, hmin=h_min)
 
   else  ! .not. x_first
     !  First advect meridionally, with loop bounds that accomodate the subsequent zonal advection.
@@ -275,7 +275,7 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
     call meridional_edge_thickness(bxC, hin, h_S, h_N, G, GV, US, CS, OBC)
     call meridional_mass_flux(v, hin, h_S, h_N, vh, dt, G, GV, US, CS, OBC, pbv%por_face_areaV, &
                               LB, vhbt, visc_rem_v, v_cor, BT_cont, dv_cor)
-    call continuity_merdional_convergence(h, vh, dt, G, GV, LB, hin)
+    call continuity_meridional_convergence(bxC, h, vh, dt, G, GV, hin=hin)
 
     !  Now advect zonally, using the updated thicknesses to determine the fluxes.
     LB  = set_continuity_loop_bounds(G, CS, i_stencil=.false., j_stencil=.false.)
@@ -283,7 +283,7 @@ subroutine continuity_PPM(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhb
     call zonal_edge_thickness(bxC, h, h_W, h_E, G, GV, US, CS, OBC)
     call zonal_mass_flux(u, h, h_W, h_E, uh, dt, G, GV, US, CS, OBC, pbv%por_face_areaU, &
                          LB, uhbt, visc_rem_u, u_cor, BT_cont, du_cor)
-    call continuity_zonal_convergence(h, uh, dt, G, GV, LB, hmin=h_min)
+    call continuity_zonal_convergence(bxC, h, uh, dt, G, GV, hmin=h_min)
   endif
 
   ! Free the continuity solver iteration box
@@ -463,7 +463,8 @@ end subroutine continuity_adjust_vel
 
 
 !> Updates the thicknesses due to zonal thickness fluxes.
-subroutine continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin, hmin)
+subroutine continuity_zonal_convergence(bxC, h, uh, dt, G, GV, hin, hmin)
+  type(box_t), intent(in) :: bxC                 !< Iteration box for continuity solver
   type(ocean_grid_type),       intent(in)    :: G    !< Ocean's grid structure
   type(verticalGrid_type),     intent(in)    :: GV   !< Ocean's vertical grid structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
@@ -471,7 +472,7 @@ subroutine continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin, hmin)
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
                                intent(in)    :: uh   !< Zonal thickness flux, u*h*dy [H L2 T-1 ~> m3 s-1 or kg s-1]
   real,                        intent(in)    :: dt   !< Time increment [T ~> s]
-  type(cont_loop_bounds_type), intent(in)    :: LB   !< Loop bounds structure
+  ! type(cont_loop_bounds_type), intent(in)    :: LB   !< Loop bounds structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
                      optional, intent(in)    :: hin  !< Initial layer thickness [H ~> m or kg m-2].
                                                      !! If hin is absent, h is also the initial thickness.
@@ -485,15 +486,17 @@ subroutine continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin, hmin)
   h_min = 0.0 ; if (present(hmin)) h_min = hmin
 
   if (present(hin)) then
-    !$OMP parallel do default(shared)
-    do k=1,GV%ke ; do j=LB%jsh,LB%jeh ; do i=LB%ish,LB%ieh
+    do concurrent(k=bxC%idxS(3):bxC%idxE(3), &
+                  j=bxC%idxS(2):bxC%idxE(2), &
+                  i=bxC%idxS(1):bxC%idxE(1))
       h(i,j,k) = max( hin(i,j,k) - dt * G%IareaT(i,j) * (uh(I,j,k) - uh(I-1,j,k)), h_min )
-    enddo ; enddo ; enddo
+    enddo
   else
-    !$OMP parallel do default(shared)
-    do k=1,GV%ke ; do j=LB%jsh,LB%jeh ; do i=LB%ish,LB%ieh
+    do concurrent(k=bxC%idxS(3):bxC%idxE(3), &
+                  j=bxC%idxS(2):bxC%idxE(2), &
+                  i=bxC%idxS(1):bxC%idxE(1))
       h(i,j,k) = max( h(i,j,k) - dt * G%IareaT(i,j) * (uh(I,j,k) - uh(I-1,j,k)), h_min )
-    enddo ; enddo ; enddo
+    enddo
   endif
 
   call cpu_clock_end(id_clock_update)
@@ -501,7 +504,8 @@ subroutine continuity_zonal_convergence(h, uh, dt, G, GV, LB, hin, hmin)
 end subroutine continuity_zonal_convergence
 
 !> Updates the thicknesses due to meridional thickness fluxes.
-subroutine continuity_merdional_convergence(h, vh, dt, G, GV, LB, hin, hmin)
+subroutine continuity_meridional_convergence(bxC, h, vh, dt, G, GV, hin, hmin)
+  type(box_t), intent(in) :: bxC                 !< Iteration box for continuity solver
   type(ocean_grid_type),       intent(in)    :: G    !< Ocean's grid structure
   type(verticalGrid_type),     intent(in)    :: GV   !< Ocean's vertical grid structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
@@ -509,7 +513,6 @@ subroutine continuity_merdional_convergence(h, vh, dt, G, GV, LB, hin, hmin)
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
                                intent(in)    :: vh   !< Meridional thickness flux, v*h*dx [H L2 T-1 ~> m3 s-1 or kg s-1]
   real,                        intent(in)    :: dt   !< Time increment [T ~> s]
-  type(cont_loop_bounds_type), intent(in)    :: LB   !< Loop bounds structure
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
                      optional, intent(in)    :: hin  !< Initial layer thickness [H ~> m or kg m-2].
                                                      !! If hin is absent, h is also the initial thickness.
@@ -523,20 +526,22 @@ subroutine continuity_merdional_convergence(h, vh, dt, G, GV, LB, hin, hmin)
   h_min = 0.0 ; if (present(hmin)) h_min = hmin
 
   if (present(hin)) then
-    !$OMP parallel do default(shared)
-    do k=1,GV%ke ; do j=LB%jsh,LB%jeh ; do i=LB%ish,LB%ieh
+    do concurrent(k=bxC%idxS(3):bxC%idxE(3), &
+                  j=bxC%idxS(2):bxC%idxE(2), &
+                  i=bxC%idxS(1):bxC%idxE(1))
       h(i,j,k) = max( hin(i,j,k) - dt * G%IareaT(i,j) * (vh(i,J,k) - vh(i,J-1,k)), h_min )
-    enddo ; enddo ; enddo
+    enddo
   else
-    !$OMP parallel do default(shared)
-    do k=1,GV%ke ; do j=LB%jsh,LB%jeh ; do i=LB%ish,LB%ieh
+    do concurrent(k=bxC%idxS(3):bxC%idxE(3), &
+                  j=bxC%idxS(2):bxC%idxE(2), &
+                  i=bxC%idxS(1):bxC%idxE(1))
       h(i,j,k) = max( h(i,j,k) - dt * G%IareaT(i,j) * (vh(i,J,k) - vh(i,J-1,k)), h_min )
-    enddo ; enddo ; enddo
+    enddo
   endif
 
   call cpu_clock_end(id_clock_update)
 
-end subroutine continuity_merdional_convergence
+end subroutine continuity_meridional_convergence
 
 
 !> Set the reconstructed thicknesses at the eastern and western edges of tracer cells.
