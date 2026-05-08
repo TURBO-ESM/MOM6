@@ -2,6 +2,14 @@
 
 Source: [TURBO-ESM/MOM6 PR #15](https://github.com/TURBO-ESM/MOM6/pull/15) — merged commit `daf6abefb`.
 
+**Pre-condition:** The `generate_cpp_bridge` skill operates on a
+pre-existing TURBO-ESM/MOM6 checkout. The work directory must already
+contain the source tree (i.e. have `src/` and `config_src/`) and must be
+on (or rebased onto) the `dev/turbo-debug` branch. Cloning is not
+performed — use `git clone -b dev/turbo-debug git@github.com:TURBO-ESM/MOM6.git <dir>`
+once to set up the directory, then pass it as `<work-directory>` on every
+subsequent skill invocation.
+
 This document distills the design, logic, and patterns used to wrap three
 existing Fortran subroutines in `MOM_continuity_PPM` (`PPM_limit_pos`,
 `PPM_limit_cw84`, `PPM_reconstruction_y`) so they can be redirected at

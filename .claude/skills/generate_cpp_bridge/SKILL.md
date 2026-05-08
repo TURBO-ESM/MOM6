@@ -27,8 +27,9 @@ between the original Fortran code, a capture mode for offline validation,
 and a C++/AMReX bridge. Mirrors TURBO-ESM/MOM6 PR #15.
 
 Arguments:
-  <work-directory>   Absolute path to the MOM6 source tree (must contain
-                     src/ and config_src/). Must already exist.
+  <work-directory>   Absolute path to an existing TURBO-ESM/MOM6 checkout
+                     (must contain src/ and config_src/, and should be on
+                     the dev/turbo-debug branch). Cloning is not performed.
   <function-name>    Name of the Fortran subroutine to wrap (case-insensitive
                      match against its declaration in the tree).
 
@@ -44,16 +45,16 @@ error. Do not retry, do not assume defaults, do not create anything.
 
 1. **Argument count.** If `$0` empty OR `$1` empty → stop:
    `Error: missing arguments. Run "/generate_cpp_bridge --help" for usage.`
-2. **Work directory exists.** If `$0` is not an existing directory → stop:
+2. **Work directory is an existing MOM6 checkout.** If `$0` is not an
+   existing directory → stop:
    `Error: work directory "<value>" does not exist.`
-   The directory **may be empty** — Step 1 will clone into it. If the
-   directory already contains a TURBO-ESM/MOM6 checkout, Step 1 will
-   reuse it.
+   The directory must already contain a TURBO-ESM/MOM6 checkout —
+   cloning is not performed by this skill. Step 1 verifies the checkout
+   identity and branch state.
 
 The remaining validation (MOM6 layout, subroutine presence, `lessons.md`
-present and loaded, plan confirmation) runs in Step 1 — after the clone
-populates the tree. No wrapping work below executes until both Step 0
-and Step 1's post-clone validation pass.
+present and loaded, plan confirmation) runs in Step 1. No wrapping work
+below executes until both Step 0 and Step 1 validation pass.
 
 ## Settle these decisions (ask if not obvious from the tree)
 
@@ -70,27 +71,26 @@ If the user already specified any of these, take their values as-is.
 Each step is one action with a pointer to the lessons.md section that
 holds the template or rationale.
 
-### 1. Clone the repo and run post-clone validation
-   **Populate the work directory.** All wrapping work in this skill is
+### 1. Validate the existing checkout
+   **Verify the work directory.** All wrapping work in this skill is
    based on the `dev/turbo-debug` branch — that is the agreed base for
    bridge work and what the C++ side expects to merge against.
 
-   - If `$0` is empty, run
-     `git clone -b dev/turbo-debug git@github.com:TURBO-ESM/MOM6.git $0`.
-   - If `$0` already contains a checkout of `TURBO-ESM/MOM6` (verify with
-     `git -C $0 remote -v`):
-     - Run `git -C $0 fetch origin dev/turbo-debug`.
-     - If the working tree is dirty (`git -C $0 status --porcelain` is
-       non-empty), stop and surface to the user — do not stash or
-       discard.
-     - If HEAD is not already at `origin/dev/turbo-debug` (compare
-       `git -C $0 rev-parse HEAD` and `git -C $0 rev-parse origin/dev/turbo-debug`),
-       stop and ask the user whether to `git checkout dev/turbo-debug`
-       in the existing tree before continuing. Do not switch branches
-       silently — the user may have unrelated work on the current
-       branch.
-   - If `$0` is non-empty but not a TURBO-ESM/MOM6 checkout, stop and
-     surface the conflict to the user — do not delete or overwrite.
+   Verify `$0` is a TURBO-ESM/MOM6 checkout by running
+   `git -C $0 remote -v` and confirming the output contains
+   `TURBO-ESM/MOM6`. If not → stop:
+   `Error: "<value>" is not a TURBO-ESM/MOM6 checkout.`
+
+   Then run `git -C $0 fetch origin dev/turbo-debug` and check the
+   branch state:
+   - If the working tree is dirty (`git -C $0 status --porcelain` is
+     non-empty) → stop and surface to the user; do not stash or discard.
+   - If HEAD is not already at `origin/dev/turbo-debug` (compare
+     `git -C $0 rev-parse HEAD` and
+     `git -C $0 rev-parse origin/dev/turbo-debug`) → stop and ask the
+     user whether to `git checkout dev/turbo-debug` before continuing.
+     Do not switch branches silently — the user may have unrelated work
+     on the current branch.
 
    **Then validate the tree** before proceeding to Step 2 — stop on the
    first failure with a one-line, actionable error:
