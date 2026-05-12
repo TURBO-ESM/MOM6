@@ -2,7 +2,7 @@
 name: generate_cpp_bridge
 description: Wrap an existing MOM6 Fortran subroutine in a runtime-dispatched shim that selects between (a) the original Fortran code, (b) a binary capture mode that records inputs+outputs to disk for offline validation, and (c) a C++/AMReX bridge invoked through bind(C). Use when porting any MOM6 kernel to AMReX while keeping the Fortran caller unchanged and the Fortran truth available as a numerical reference. Mirrors the pattern established in TURBO-ESM/MOM6 PR #15.
 user-invocable: true
-argument-hint: <work-directory> <function-name>
+argument-hint: <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit]
 ---
 
 # Generate C++ bridge for a MOM6 Fortran subroutine
@@ -20,7 +20,7 @@ If `$ARGUMENTS` is empty, or equals `help`, or equals `--help`, or equals
 and stop:
 
 ```
-Usage: /generate_cpp_bridge <work-directory> <function-name>
+Usage: /generate_cpp_bridge <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit]
 
 Wrap a MOM6 Fortran subroutine in a runtime-dispatched shim that selects
 between the original Fortran code, a capture mode for offline validation,
@@ -32,6 +32,12 @@ Arguments:
                      the dev/turbo-debug branch). Cloning is not performed.
   <function-name>    Name of the Fortran subroutine to wrap (case-insensitive
                      match against its declaration in the tree).
+  --enable_src_validate  (optional) Run Step 1: verify the work directory is a
+                         TURBO-ESM/MOM6 checkout on dev/turbo-debug and that
+                         the subroutine exists. Off by default.
+  --enable_git_commit    (optional) Run Step 10: create branch
+                         claude_<function-name>_bridge, commit all changes, and
+                         push to origin. Off by default.
 
 Example:
   /generate_cpp_bridge /glade/derecho/scratch/sunjian/MOM6 PPM_limit_pos
@@ -51,10 +57,14 @@ error. Do not retry, do not assume defaults, do not create anything.
    The directory must already contain a TURBO-ESM/MOM6 checkout —
    cloning is not performed by this skill. Step 1 verifies the checkout
    identity and branch state.
+3. **Parse optional flags.** Scan remaining arguments for `--enable_src_validate`
+   and `--enable_git_commit`. Store as boolean flags (default: off). Any
+   unrecognised argument that starts with `--` → stop:
+   `Error: unknown option "<value>". Run "/generate_cpp_bridge --help" for usage.`
 
-The remaining validation (MOM6 layout, subroutine presence, `lessons.md`
-present and loaded, plan confirmation) runs in Step 1. No wrapping work
-below executes until both Step 0 and Step 1 validation pass.
+Step 1 runs only when `--enable_src_validate` is set; Step 10 runs only when
+`--enable_git_commit` is set. No other wrapping work executes until Step 0
+validation passes.
 
 ## Settle these decisions (ask if not obvious from the tree)
 
@@ -71,7 +81,9 @@ If the user already specified any of these, take their values as-is.
 Each step is one action with a pointer to the lessons.md section that
 holds the template or rationale.
 
-### 1. Validate the existing checkout
+### 1. Validate the existing checkout *(runs only when `--enable_src_validate` is passed; skip otherwise and proceed to Step 2)*
+   If `--enable_src_validate` was not supplied, skip this entire step and go to Step 2.
+
    **Verify the work directory.** All wrapping work in this skill is
    based on the `dev/turbo-debug` branch — that is the agreed base for
    bridge work and what the C++ side expects to merge against.
@@ -158,7 +170,10 @@ holds the template or rationale.
    and report that the C++ side of `<prefix>_$1_bridge` is the next
    deliverable.
 
-### 10. Commit and push to `claude_<function-name>_bridge`
+### 10. Commit and push to `claude_<function-name>_bridge` *(runs only when `--enable_git_commit` is passed; skip otherwise)*
+   If `--enable_git_commit` was not supplied, skip this entire step and report the
+   files that were modified so the user can commit manually.
+
    From the work directory, create (or check out, if it already exists)
    the branch `claude_$1_bridge` (use the lowercased function name so
    different functions land on different branches and can be committed
