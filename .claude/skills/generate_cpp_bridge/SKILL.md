@@ -2,7 +2,7 @@
 name: generate_cpp_bridge
 description: Wrap an existing MOM6 Fortran subroutine in a runtime-dispatched shim that selects between (a) the original Fortran code, (b) a binary capture mode that records inputs+outputs to disk for offline validation, and (c) a C++/AMReX bridge invoked through bind(C). Use when porting any MOM6 kernel to AMReX while keeping the Fortran caller unchanged and the Fortran truth available as a numerical reference. Mirrors the pattern established in TURBO-ESM/MOM6 PR #15.
 user-invocable: true
-argument-hint: <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit]
+argument-hint: <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit] [--change-shim-interface]
 ---
 
 # Generate C++ bridge for a MOM6 Fortran subroutine
@@ -20,7 +20,7 @@ If `$ARGUMENTS` is empty, or equals `help`, or equals `--help`, or equals
 and stop:
 
 ```
-Usage: /generate_cpp_bridge <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit]
+Usage: /generate_cpp_bridge <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit] [--change-shim-interface]
 
 Wrap a MOM6 Fortran subroutine in a runtime-dispatched shim that selects
 between the original Fortran code, a capture mode for offline validation,
@@ -38,6 +38,14 @@ Arguments:
   --enable_git_commit    (optional) Run Step 10: create branch
                          claude_<function-name>_bridge, commit all changes, and
                          push to origin. Off by default.
+  --change-shim-interface  (optional) Allow the shim subroutine's dummy argument
+                           list to change: array dummies become RealArray_t /
+                           IntArray_t containers in the public interface.
+                           When set, callers are rewritten to build containers
+                           and call the new interface. When omitted (default),
+                           the shim preserves the original argument list and
+                           performs the array↔container conversion internally,
+                           leaving call sites unchanged.
 
 Example:
   /generate_cpp_bridge /glade/derecho/scratch/sunjian/MOM6 PPM_limit_pos
@@ -57,9 +65,9 @@ error. Do not retry, do not assume defaults, do not create anything.
    The directory must already contain a TURBO-ESM/MOM6 checkout —
    cloning is not performed by this skill. Step 1 verifies the checkout
    identity and branch state.
-3. **Parse optional flags.** Scan remaining arguments for `--enable_src_validate`
-   and `--enable_git_commit`. Store as boolean flags (default: off). Any
-   unrecognised argument that starts with `--` → stop:
+3. **Parse optional flags.** Scan remaining arguments for `--enable_src_validate`,
+   `--enable_git_commit`, and `--change-shim-interface`. Store as boolean flags
+   (default: off). Any unrecognised argument that starts with `--` → stop:
    `Error: unknown option "<value>". Run "/generate_cpp_bridge --help" for usage.`
 
 Step 1 runs only when `--enable_src_validate` is set; Step 10 runs only when
@@ -73,6 +81,10 @@ validation passes.
 2. **Env-var name** — default `<UPPERCASE_$1>_MODE`.
 3. **AMReX gating** — default `#ifdef _TIM` around the `case (TIMH_runAMREX)`
    arm only; capture mode is never gated.
+4. **Shim interface mode** — if `--change-shim-interface` was passed, the shim's
+   public argument list will use `RealArray_t`/`IntArray_t` containers and
+   callers will be rewritten. Otherwise (default) the shim preserves the
+   original array-based argument list and converts internally.
 
 If the user already specified any of these, take their values as-is.
 
@@ -134,14 +146,28 @@ holds the template or rationale.
    Rename `$1` → `$1_fortran` in place; convert array dummies to
    `RealArray_t` / `IntArray_t`; rewrite loops as `do concurrent` over
    `bx%idxS`/`bx%idxE`. Template: lessons.md §12.
+   `$1_fortran` always uses the container-based signature regardless of the
+   shim interface mode — only the public-facing shim (`$1`) differs.
 
 ### 4. Add the `bind(C)` interface block
    At the top of the host module, declare `<prefix>_$1_bridge` per the
    template in lessons.md §3.3. Doc-comment every dummy with `!<`.
 
 ### 5. Write the shim subroutine `$1`
-   Same public name and dummy list as the original (after array→container
-   rewrite). Body is one `select case (mode)` over
+   Always uses the same public name as the original. The dummy argument
+   list depends on the shim interface mode:
+
+   - **Default (interface preserved):** Keep the original array-based dummy
+     list. In each dispatch arm, wrap raw arrays into `RealArray_t` /
+     `IntArray_t` containers before calling `$1_fortran` or the bridge, and
+     unwrap them on return. Call sites in existing callers require no changes.
+
+   - **`--change-shim-interface` (interface changed):** Replace array dummies
+     with `RealArray_t` / `IntArray_t` containers in the public signature.
+     No internal wrapping is needed in the dispatch arms. Callers must be
+     rewritten (Step 7).
+
+   Body is one `select case (mode)` over
    `getenv_mode("<ENV_VAR>", default=TIMH_runFORTRAN)` with three arms:
    `TIMH_capture`, `TIMH_runAMREX` (inside `#ifdef _TIM`), and `case
    default` falling through to `$1_fortran`. Template: lessons.md §2.
@@ -152,11 +178,14 @@ holds the template or rationale.
    module already has.
 
 ### 7. Rewrite each caller
-   Wrap raw arrays into `RealArray_t` containers, build the iteration
-   `Box_t`, call the shim, copy results back, free. Recipe: lessons.md §4.
-   For `intent(out)` args, skip the inbound `copy2Array`; for pure-input
-   args, skip the outbound `copy2F`. Reuse adjacent-kernel containers if
-   the caller already has them.
+   - **Default (interface preserved):** The shim accepts the same raw arrays
+     as the original; call sites are already compatible. No caller rewriting
+     is required. Proceed to Step 8.
+   - **`--change-shim-interface` (interface changed):** Wrap raw arrays into
+     `RealArray_t` containers, build the iteration `Box_t`, call the shim,
+     copy results back, free. Recipe: lessons.md §4. For `intent(out)` args,
+     skip the inbound `copy2Array`; for pure-input args, skip the outbound
+     `copy2F`. Reuse adjacent-kernel containers if the caller already has them.
 
 ### 8. Relocate halo checks and CPU clocks
    Move any halo-sufficiency `MOM_error(FATAL,...)` from inside the
@@ -207,8 +236,9 @@ holds the template or rationale.
 
 ## Hard rules
 
-- Do not change the public name or argument list of `$1` (the shim must
-  drop into existing call sites unchanged).
+- Do not change the public name of `$1`. Do not change its argument list
+  unless `--change-shim-interface` was explicitly passed — if it was not,
+  the shim must drop into existing call sites unchanged.
 - Do not introduce a global mode variable; per-kernel env vars only.
 - Do not gate capture mode behind `#ifdef _TIM`; only the AMReX arm is gated.
 - Do not omit the `case default` arm.
