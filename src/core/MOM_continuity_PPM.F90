@@ -657,8 +657,8 @@ subroutine zonal_edge_thickness(bxC, h_in, h_W, h_E, G, GV, US, CS, OBC)
 
   ! Build containers for all dispatch paths
   call h_in_a%dup(h_in)         ; call h_in_a%copy2Array(h_in)
-  call h_W_a%dup(h_W)
-  call h_E_a%dup(h_E)
+  call h_W_a%dup(h_W)           ; call h_W_a%copy2Array(h_W)
+  call h_E_a%dup(h_E)           ; call h_E_a%copy2Array(h_E)
   call mask2dT_a%dup(G%mask2dT) ; call mask2dT_a%copy2Array(G%mask2dT)
 
   select case (mode)
@@ -801,8 +801,8 @@ subroutine meridional_edge_thickness(bxC, h_in, h_S, h_N, G, GV, US, CS, OBC)
 
   ! Build containers for all dispatch paths
   call h_in_a%dup(h_in)         ; call h_in_a%copy2Array(h_in)
-  call h_S_a%dup(h_S)
-  call h_N_a%dup(h_N)
+  call h_S_a%dup(h_S)           ; call h_S_a%copy2Array(h_S)
+  call h_N_a%dup(h_N)           ; call h_N_a%copy2Array(h_N)
   call mask2dT_a%dup(G%mask2dT) ; call mask2dT_a%copy2Array(G%mask2dT)
 
   select case (mode)
@@ -3175,7 +3175,7 @@ function continuity_PPM_stencil(CS) result(stencil)
 
 end function continuity_PPM_stencil
 
-!> Set up a structure that stores the sizes of the i- and j-loops to to work on in the continuity solver.
+!> Set up a structure that stores the sizes of the i- and j-loops to work on in the continuity solver.
 function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
   type(ocean_grid_type),   intent(in) :: G   !< The ocean's grid structure.
   type(continuity_PPM_CS), intent(in) :: CS  !< Module's control structure.
@@ -3208,7 +3208,7 @@ function set_continuity_loop_bounds(G, CS, i_stencil, j_stencil) result(LB)
 
 end function set_continuity_loop_bounds
 
-!> Set up a structure that stores the sizes of the i- and j-loops to to work on in the continuity solver.
+!> Set up a structure that stores the sizes of the i- and j-loops to work on in the continuity solver.
 function set_continuity_box(G, GV, CS, i_stencil, j_stencil) result(box)
   type(ocean_grid_type),   intent(in) :: G   !< The ocean's grid structure.
   type(verticalGrid_type), intent(in) :: GV  !< Vertical grid structure.
@@ -3245,7 +3245,7 @@ function set_continuity_box(G, GV, CS, i_stencil, j_stencil) result(box)
     js = G%jsc ; je = G%jec
   endif
 
-  ! Set the extents of the iteraiton space
+  ! Set the extents of the iteration space
   call box%set(idxS=[is,js,1],idxE=[ie,je,GV%ke])
 
 end function set_continuity_box
