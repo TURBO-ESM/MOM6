@@ -183,7 +183,7 @@ function to_c(this) result(cdesc)
   cdesc%idxS = c_null_ptr
   cdesc%idxE = c_null_ptr
 
-  if(allocated(this%idxS)) then 
+  if(allocated(this%idxS)) then
      p => this%idxS
      cdesc%idxS = c_loc(p(1))
   endif
