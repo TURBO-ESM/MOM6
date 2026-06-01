@@ -2058,7 +2058,7 @@ subroutine meridional_mass_flux(bxC, v, h_in, h_S, h_N, vh, dt, G, GV, US, CS, O
     local_specified_BC = OBC%specified_v_BCs_exist_globally
     local_open_BC = OBC%open_v_BCs_exist_globally
   endif ; endif
- 
+
   ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
 
   CFL_dt = CS%CFL_limit_adjust / dt
