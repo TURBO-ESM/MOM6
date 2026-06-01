@@ -1220,9 +1220,9 @@ subroutine present_uhbt_or_set_BT_cont(bxC, u, h_in, h_W, h_E, uh_tot_0, duhdu_t
 
     if (present(uhbt)) then
       ! Find du and uh.
-      call zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, du, &
+      call zonal_flux_adjust(bxC, u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, du, &
                             du_max_CFL, du_min_CFL, dt, G, GV, US, CS, visc_rem_u, &
-                            ish, ieh, jsh, jeh, do_I, por_face_areaU, uhbt, uh, OBC=OBC)
+                            do_I, por_face_areaU, uhbt, uh, OBC=OBC)
 
       do concurrent (j=jsh:jeh)
         if (present(u_cor)) then
@@ -1246,12 +1246,12 @@ subroutine present_uhbt_or_set_BT_cont(bxC, u, h_in, h_W, h_E, uh_tot_0, duhdu_t
     endif
     if (set_BT_cont) then
       ! Diagnose the zero-transport correction, du0.
-      call zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, du, &
+      call zonal_flux_adjust(bxC, u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, du, &
                             du_max_CFL, du_min_CFL, dt, G, GV, US, CS, visc_rem_u, &
-                            ish, ieh, jsh, jeh, do_I, por_face_areaU)
-      call set_zonal_BT_cont(u, h_in, h_W, h_E, BT_cont, du, uh_tot_0, duhdu_tot_0,&
+                            do_I, por_face_areaU)
+      call set_zonal_BT_cont(bxC, u, h_in, h_W, h_E, BT_cont, du, uh_tot_0, duhdu_tot_0,&
                               du_max_CFL, du_min_CFL, dt, G, GV, US, CS, visc_rem_u, &
-                              visc_rem_max, ish, ieh, jsh, jeh, do_I, por_face_areaU)
+                              visc_rem_max,do_I, por_face_areaU)
       if (any_simple_OBC) then
         ! untested
         do concurrent (j=jsh:jeh, I=ish-1:ieh)
@@ -1620,10 +1620,10 @@ end subroutine zonal_flux_thickness
 
 !> Returns the barotropic velocity adjustment that gives the
 !! desired barotropic (layer-summed) transport.
-subroutine zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, &
+subroutine zonal_flux_adjust(bxC, u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, &
                              du, du_max_CFL, du_min_CFL, dt, G, GV, US, CS, visc_rem, &
-                             ish, ieh, jsh, jeh, do_I_in, por_face_areaU, uhbt, uh_3d, OBC)
-
+                             do_I_in, por_face_areaU, uhbt, uh_3d, OBC)
+  type(box_t),                                intent(in)    :: bxC  !< Iteration box for continuity solver
   type(ocean_grid_type),                      intent(in)    :: G    !< Ocean's grid structure.
   type(verticalGrid_type),                    intent(in)    :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(in)    :: u     !< Zonal velocity [L T-1 ~> m s-1].
@@ -1653,10 +1653,8 @@ subroutine zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, &
   real,                                       intent(in)    :: dt  !< Time increment [T ~> s].
   type(unit_scale_type),                      intent(in)    :: US  !< A dimensional unit scaling type.
   type(continuity_PPM_CS),                    intent(in)    :: CS  !< This module's control structure.
-  integer,                                    intent(in)    :: ish !< Start of i index range.
-  integer,                                    intent(in)    :: jsh !< Start of j index range.
-  integer,                                    intent(in)    :: ieh !< End of i index range.
-  integer,                                    intent(in)    :: jeh !< End of j index range.
+
+
   logical, dimension(SZIB_(G),SZJ_(G)),       intent(in)    :: do_I_in !< A logical flag indicating
                                                                        !! which I values to work on.
   real, dimension(SZIB_(G), SZJ_(G), SZK_(G)), intent(in)   :: por_face_areaU !< fractional open area
@@ -1682,8 +1680,13 @@ subroutine zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, &
   real :: tol_eta  ! The tolerance for the current iteration [H ~> m or kg m-2].
   real :: tol_vel  ! The tolerance for velocity in the current iteration [L T-1 ~> m s-1].
   integer :: i, j, k, nz, itt
+  integer :: ish !< Start of i index range.
+  integer :: jsh !< Start of j index range.
+  integer :: ieh !< End of i index range.
+  integer :: jeh !< End of j index range.
   logical :: do_I(SZIB_(G)), local_OBC, use_uhbt
   integer, parameter:: max_itts = 20
+
 
   local_OBC = .false.
   if (present(OBC)) then
@@ -1694,7 +1697,7 @@ subroutine zonal_flux_adjust(u, h_in, h_W, h_E, uh_tot_0, duhdu_tot_0, &
 
   use_uhbt = present(uhbt)
 
-  nz = GV%ke
+  ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
 
   tol_vel = CS%tol_vel
 
@@ -1811,9 +1814,10 @@ end subroutine zonal_flux_adjust
 
 !> Sets a structure that describes the zonal barotropic volume or mass fluxes as a
 !! function of barotropic flow to agree closely with the sum of the layer's transports.
-subroutine set_zonal_BT_cont(u, h_in, h_W, h_E, BT_cont, du0, uh_tot_0, duhdu_tot_0, &
+subroutine set_zonal_BT_cont(bxC, u, h_in, h_W, h_E, BT_cont, du0, uh_tot_0, duhdu_tot_0, &
                              du_max_CFL, du_min_CFL, dt, G, GV, US, CS, visc_rem, &
-                             visc_rem_max, ish, ieh, jsh, jeh, do_I, por_face_areaU)
+                             visc_rem_max, do_I, por_face_areaU)
+  type(box_t),             intent(in) :: bxC  !< Iteration box for continuity solver
   type(ocean_grid_type),   intent(in) :: G    !< Ocean's grid structure.
   type(verticalGrid_type), intent(in) :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
@@ -1850,10 +1854,6 @@ subroutine set_zonal_BT_cont(u, h_in, h_W, h_E, BT_cont, du0, uh_tot_0, duhdu_to
                        !! Visc_rem is between 0 (at the bottom) and 1 (far above the bottom).
   real, dimension(SZIB_(G),SZJ_(G)), &
                            intent(in) :: visc_rem_max !< Maximum allowable visc_rem [nondim].
-  integer,                 intent(in) :: ish      !< Start of i index range.
-  integer,                 intent(in) :: ieh      !< End of i index range.
-  integer,                 intent(in) :: jsh      !< Start of j index range.
-  integer,                 intent(in) :: jeh      !< End of j index range.
   logical, dimension(SZIB_(G),SZJ_(G)), &
                            intent(in) :: do_I     !< A logical flag indicating which I values to work on.
   real, dimension(SZIB_(G),SZJ_(G),SZK_(G)), &
@@ -1889,8 +1889,13 @@ subroutine set_zonal_BT_cont(u, h_in, h_W, h_E, BT_cont, du0, uh_tot_0, duhdu_to
                   ! flow is truly upwind [nondim]
   real :: Idt     ! The inverse of the time step [T-1 ~> s-1].
   integer :: i, j, k, nz
+  integer :: ish      !< Start of i index range.
+  integer :: ieh      !< End of i index range.
+  integer :: jsh      !< Start of j index range.
+  integer :: jeh      !< End of j index range.
 
-  nz = GV%ke ; Idt = 1.0 / dt
+  ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
+  Idt = 1.0 / dt
   min_visc_rem = 0.1 ; CFL_min = 1e-6
 
   !$omp target enter data map(alloc: duL, duR, du_CFL, FAmt_L, FAmT_R, FAmt_0, uhtot_L, uhtot_R)
@@ -2304,9 +2309,9 @@ subroutine present_vhbt_or_set_BT_cont(bxC, v, h_in, h_S, h_N, vh_tot_0, dvhdv_t
 
     if (present(vhbt)) then
       ! Find dv and vh.
-      call meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, dv, &
+      call meridional_flux_adjust(bxC, v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, dv, &
                              dv_max_CFL, dv_min_CFL, dt, G, GV, US, CS, visc_rem_v, &
-                             ish, ieh, jsh, jeh, do_I, por_face_areaV, vhbt, vh, OBC=OBC)
+                             do_I, por_face_areaV, vhbt, vh, OBC=OBC)
 
       do concurrent (J=jsh-1:jeh)
         if (present(v_cor)) then
@@ -2331,12 +2336,12 @@ subroutine present_vhbt_or_set_BT_cont(bxC, v, h_in, h_S, h_N, vh_tot_0, dvhdv_t
 
     if (set_BT_cont) then
     ! Diagnose the zero-transport correction, dv0.
-      call meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, dv, &
+      call meridional_flux_adjust(bxC, v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, dv, &
                             dv_max_CFL, dv_min_CFL, dt, G, GV, US, CS, visc_rem_v, &
-                            ish, ieh, jsh, jeh, do_I, por_face_areaV)
-      call set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, dv, vh_tot_0, dvhdv_tot_0, &
+                            do_I, por_face_areaV)
+      call set_merid_BT_cont(bxC, v, h_in, h_S, h_N, BT_cont, dv, vh_tot_0, dvhdv_tot_0, &
                              dv_max_CFL, dv_min_CFL, dt, G, GV, US, CS, visc_rem_v, &
-                             visc_rem_max, ish, ieh, jsh, jeh, do_I, por_face_areaV)
+                             visc_rem_max, do_I, por_face_areaV)
 
       if (any_simple_OBC) then
         ! untested
@@ -2515,10 +2520,16 @@ subroutine meridional_flux_thickness(bxC, v, h, h_S, h_N, h_v, dt, G, GV, US, vo
   logical :: local_open_BC
   integer :: i, j, k, ish, ieh, jsh, jeh, n, nz
   real :: dh
+  type(box_t) :: bxV
 
   ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
 
-  do concurrent (k=1:nz, J=jsh-1:jeh, i=ish:ieh)
+  bxV = bxC%growLo(dim=2, n=1) !< Increase the lower extent of the y-dimension (V-grid)
+
+  ! do concurrent (k=1:nz, J=jsh-1:jeh, i=ish:ieh)
+  do concurrent(k=bxV%idxS(3):bxV%idxE(3), &
+                j=bxV%idxS(2):bxV%idxE(2), &
+                i=bxV%idxS(1):bxV%idxE(1)) ! V-grid
     if (v(i,J,k) > 0.0) then
       if (vol_CFL) then ; CFL = (v(i,J,k) * dt) * (G%dx_Cv(i,J) * G%IareaT(i,j))
       else ; CFL = v(i,J,k) * dt * G%IdyT(i,j) ; endif
@@ -2589,13 +2600,16 @@ subroutine meridional_flux_thickness(bxC, v, h, h_S, h_N, h_v, dt, G, GV, US, vo
     enddo
   endif
 
+  call bxV%free()
+
 end subroutine meridional_flux_thickness
 
 
 !> Returns the barotropic velocity adjustment that gives the desired barotropic (layer-summed) transport.
-subroutine meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, &
+subroutine meridional_flux_adjust(bxC, v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, &
                              dv, dv_max_CFL, dv_min_CFL, dt, G, GV, US, CS, visc_rem, &
-                             ish, ieh, jsh, jeh, do_I_in, por_face_areaV, vhbt, vh_3d, OBC)
+                             do_I_in, por_face_areaV, vhbt, vh_3d, OBC)
+  type(box_t),             intent(in)    :: bxC  !< Iteration box for continuity solver
   type(ocean_grid_type),   intent(in)    :: G    !< Ocean's grid structure.
   type(verticalGrid_type), intent(in)    :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
@@ -2631,10 +2645,6 @@ subroutine meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, &
   real,                    intent(in)  :: dt      !< Time increment [T ~> s].
   type(unit_scale_type),   intent(in)  :: US      !< A dimensional unit scaling type
   type(continuity_PPM_CS), intent(in)  :: CS      !< This module's control structure.
-  integer,                 intent(in)  :: ish     !< Start of i index range.
-  integer,                 intent(in)  :: ieh     !< End of i index range.
-  integer,                 intent(in)  :: jsh     !< Start of j index range.
-  integer,                 intent(in)  :: jeh     !< End of j index range.
   logical, dimension(SZI_(G),SZJB_(G)), &
                            intent(in)  :: do_I_in  !< A flag indicating which I values to work on.
   real, dimension(SZI_(G),SZJB_(G),SZK_(G)), &
@@ -2662,6 +2672,10 @@ subroutine meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, &
   integer :: i, j, k, nz, itt
   logical :: do_I(SZI_(G)), local_OBC, use_vhbt
   integer, parameter :: max_itts = 20
+  integer :: ish     !< Start of i index range.
+  integer :: ieh     !< End of i index range.
+  integer :: jsh     !< Start of j index range.
+  integer :: jeh     !< End of j index range.
 
   local_OBC = .false.
   if (present(OBC)) then
@@ -2672,7 +2686,7 @@ subroutine meridional_flux_adjust(v, h_in, h_S, h_N, vh_tot_0, dvhdv_tot_0, &
 
   use_vhbt = present(vhbt)
 
-  nz = GV%ke
+  ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
 
   tol_vel = CS%tol_vel
 
@@ -2790,9 +2804,10 @@ end subroutine meridional_flux_adjust
 
 !> Sets of a structure that describes the meridional barotropic volume or mass fluxes as a
 !! function of barotropic flow to agree closely with the sum of the layer's transports.
-subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, dv0, vh_tot_0, dvhdv_tot_0, &
+subroutine set_merid_BT_cont(bxC, v, h_in, h_S, h_N, BT_cont, dv0, vh_tot_0, dvhdv_tot_0, &
                              dv_max_CFL, dv_min_CFL, dt, G, GV, US, CS, visc_rem, &
-                             visc_rem_max, ish, ieh, jsh, jeh, do_I, por_face_areaV)
+                             visc_rem_max, do_I, por_face_areaV)
+  type(box_t),                                intent(in)    :: bxC  !< Iteration box for continuity solver
   type(ocean_grid_type),                      intent(in)    :: G    !< Ocean's grid structure.
   type(verticalGrid_type),                    intent(in)    :: GV   !< Ocean's vertical grid structure.
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(in)    :: v    !< Meridional velocity [L T-1 ~> m s-1].
@@ -2823,10 +2838,6 @@ subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, dv0, vh_tot_0, dvhdv_to
                        !! acceleration that a layer experiences after viscosity is applied [nondim].
                        !! Visc_rem is between 0 (at the bottom) and 1 (far above the bottom).
   real, dimension(SZI_(G),SZJB_(G)),          intent(in)    :: visc_rem_max !< Maximum allowable visc_rem [nondim]
-  integer,                                    intent(in)    :: ish  !< Start of i index range.
-  integer,                                    intent(in)    :: ieh  !< End of i index range.
-  integer,                                    intent(in)    :: jsh  !< Start of j index range.
-  integer,                                    intent(in)    :: jeh  !< End of j index range.
   logical, dimension(SZI_(G),SZJB_(G)),       intent(in)    :: do_I !< A logical flag indicating
                                                                     !! which I values to work on.
   real, dimension(SZI_(G),SZJB_(G),SZK_(G)),  intent(in)    :: por_face_areaV !< fractional open area of V-faces
@@ -2862,8 +2873,13 @@ subroutine set_merid_BT_cont(v, h_in, h_S, h_N, BT_cont, dv0, vh_tot_0, dvhdv_to
                        ! flow is truly upwind [nondim]
   real :: Idt          ! The inverse of the time step [T-1 ~> s-1].
   integer :: i, j, k, nz
+  integer :: ish  !< Start of i index range.
+  integer :: ieh  !< End of i index range.
+  integer :: jsh  !< Start of j index range.
+  integer :: jeh  !< End of j index range.
 
-  nz = GV%ke ; Idt = 1.0 / dt
+  ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; jsh = bxC%idxS(2) ; jeh = bxC%idxE(2) ; nz  = bxC%idxE(3)
+  Idt = 1.0 / dt
   min_visc_rem = 0.1 ; CFL_min = 1e-6
 
   !$omp target enter data map(alloc: dvL, dvR, dv_CFL, FAmt_L, FAmt_R, FAmt_0, vhtot_L, vhtot_R)
