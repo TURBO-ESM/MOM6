@@ -59,7 +59,7 @@ module array_mod
                 viewReal4D
      generic :: alloc => allocReal1D, &       !< Generic interface for array container allocation
                 allocReal2D, allocReal3D, &
-                allocReal4D
+                allocReal4D, allocReal
      generic :: dup => dupReal1D, &           !< Generic interface for duplicate
                 dupReal2D, dupReal3D, &
                 dupReal4D
