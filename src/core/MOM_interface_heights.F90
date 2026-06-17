@@ -1092,28 +1092,28 @@ subroutine thickness_to_dz_3d_fortran(bx, h_a, tv, dz_a, GV, halo_size, do_offlo
   call dz_a%view(dz)
 
   if ((.not.GV%Boussinesq) .and. allocated(tv%SpV_avg))  then
-    if(use_doconcurrent) then 
+    if(use_doconcurrent) then
       do concurrent (k=bx%idxS(3):bx%idxE(3), &
                    j=bx%idxS(2):bx%idxE(2), &
                    i=bx%idxS(1):bx%idxE(1))
         dz(i,j,k) = GV%H_to_RZ * h(i,j,k) * tv%SpV_avg(i,j,k)
       enddo
     else
-      do k=bx%idxS(3), bx%idxE(3) 
+      do k=bx%idxS(3), bx%idxE(3)
       do j=bx%idxS(2), bx%idxE(2)
       do i=bx%idxS(1), bx%idxE(1)
         dz(i,j,k) = GV%H_to_RZ * h(i,j,k) * tv%SpV_avg(i,j,k)
       enddo ; enddo ; enddo
     endif
   else
-    if(use_doconcurrent) then 
+    if(use_doconcurrent) then
       do concurrent (k=bx%idxS(3):bx%idxE(3), &
                    j=bx%idxS(2):bx%idxE(2), &
                    i=bx%idxS(1):bx%idxE(1))
         dz(i,j,k) = GV%H_to_Z * h(i,j,k)
       enddo
     else
-      do k=bx%idxS(3), bx%idxE(3) 
+      do k=bx%idxS(3), bx%idxE(3)
       do j=bx%idxS(2), bx%idxE(2)
       do i=bx%idxS(1), bx%idxE(1)
         dz(i,j,k) = GV%H_to_Z * h(i,j,k)
