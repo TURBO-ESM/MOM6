@@ -59,7 +59,7 @@ module array_mod
      generic :: alloc => allocReal,       &       !< Generic interface for array container allocation
                 allocReal1D, allocReal2D, &
                 allocReal3D, allocReal4D
-     generic :: allocView =>  &           !< Generic interface for array container allocastion and view
+     generic :: allocView =>  &           !< Generic interface for array container allocation and view
                 allocViewReal1D, allocViewReal2D, &
                 allocViewReal3D, allocViewReal4D
      generic :: free => freeReal              !< Generic interface for deallocate
@@ -76,7 +76,7 @@ module array_mod
      procedure :: freeInt                    !< Deallocates memory from a container
      procedure ::  viewInt1D,  viewInt2D, &   !< Associates a Fortran pointer to an array container
                    viewInt3D,  viewInt4D
-    procedure :: allocInt1D, allocInt2D,  &  !< Allocates memory and opitonally initializes
+    procedure :: allocInt1D, allocInt2D,  &  !< Allocates memory and optionally initializes
                   allocInt3D, allocInt4D
      procedure :: allocViewInt1D, allocViewInt2D, & !< Allocates memory and associates a Fortran pointer
                   allocViewInt3D, allocViewInt4D
@@ -448,7 +448,7 @@ subroutine copy2AInt0D(this,var)
   ! Local variables
   integer :: i, n1
 
-  n1 = this%shape(1)
+  n1 = product(this%shape)
 
   ! do concurrent so the copy runs on the device under offload
   do concurrent (i=1:n1)

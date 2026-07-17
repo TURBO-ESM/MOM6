@@ -42,7 +42,7 @@ module array_mod
                   allocReal3D, allocReal4D
      procedure :: copy2FReal1D, copy2FReal2D, & !< Copy data in a RealArray_t to a Fortran array
                   copy2FReal3D, copy2FReal4D
-     procedure :: copy2AReal1D, copy2AReal2D, & !< Copy data from a Fortran array to an container
+     procedure :: copy2AReal1D, copy2AReal2D, & !< Copy data from a Fortran array to a container
                   copy2AReal3D, copy2AReal4D, &
                   copy2AReal0D
      procedure :: allocViewReal1D, allocViewReal2D, &
@@ -357,7 +357,6 @@ subroutine copy2AReal4D(this,var)
 
   ! Local variables
   integer :: i, j, k, m, n1, n2, n3, n4
-  real(kind=real64), pointer, contiguous :: d(:)
 
   n1 = this%shape(1)
   n2 = this%shape(2)
@@ -371,7 +370,7 @@ subroutine copy2AReal4D(this,var)
 
 end subroutine copy2AReal4D
 
-! Copy from 1D ReallArray_t to Fortran
+! Copy from 1D RealArray_t to Fortran
 subroutine copy2FReal1D(this,var)
   class(RealArray_t), intent(in) :: this    !< The source array container
   real, dimension(:), intent(inout) :: var  !< The destination Fortran array
