@@ -7,6 +7,7 @@
 module MOM_fixed_initialization
 
 use MOM_debugging, only : hchksum, qchksum, uvchksum
+use MOM_coms_helpers, only: PE_here
 use MOM_domains, only : pass_var
 use MOM_dyn_horgrid, only : dyn_horgrid_type
 use MOM_error_handler, only : MOM_mesg, MOM_error, FATAL, WARNING, is_root_pe
@@ -29,6 +30,12 @@ use MOM_shared_initialization, only : set_subgrid_topo_at_vel_from_file
 use MOM_shared_initialization, only : compute_global_grid_integrals
 use MOM_shared_initialization, only : set_meanSL_from_file
 use MOM_unit_scaling, only : unit_scale_type
+
+use posix, only : mkdir_posix
+use array_mod, only : RealArray_t, RealArray_c
+use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_bool, c_null_char, c_null_ptr
+use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF, only : TIMH_capture
 
 use user_initialization, only : user_initialize_topography
 use DOME_initialization, only : DOME_initialize_topography
@@ -68,8 +75,18 @@ subroutine MOM_initialize_fixed(G, US, OBC, PF)
   character(len=40)  :: mdl = "MOM_fixed_initialization" ! This module's name.
   integer :: I, J
   logical :: debug
+  type(io_recorder)  :: rec
+  integer  :: mode, rc
+  integer  :: rank_num
+  logical            :: capture
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  character(len=4)   :: pe_string
+  type(RealArray_t) :: bathyT_TIM
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
+
+  mode = getenv_mode("INITIALIZED_FIXED_CAPTURE", default=TIMH_capture)
 
   call callTree_enter("MOM_initialize_fixed(), MOM_fixed_initialization.F90")
   call get_param(PF, mdl, "DEBUG", debug, default=.false.)
@@ -89,8 +106,43 @@ subroutine MOM_initialize_fixed(G, US, OBC, PF)
   ! or, if absent, is diagnosed as G%max_depth = max( G%D(:,:) )
   call MOM_initialize_topography(G%bathyT, G%max_depth, G, PF, US, meanSL=G%meanSL)
 
+  ! call bathyT_TIM%dup(G%bathyT)
+  
+  select case (mode)
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(mdl)))
+      if (capture) then
+        call bathyT_TIM%alloc(lb=LBOUND(G%bathyT), ub=UBOUND(G%bathyT), source=G%bathyT)
+        ! call bathyT_TIM%copy2Array(G%bathyT)
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        rank_num = PE_here()
+        write(pe_string, '(i4.4)') rank_num
+        binFile  = trim(dir) // "/" // trim(mdl) // "_" // trim(pe_string) // ".bin"
+        metaFile = trim(dir) // "/" // trim(mdl) // "_" // trim(pe_string) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("G%isd_global",      G%isd_global     )
+        call rec%add("G%jsd_global",      G%jsd_global     )
+        call rec%add("G%Domain%nihalo",   G%Domain%nihalo  )
+        call rec%add("G%Domain%njhalo",   G%Domain%njhalo  )
+        call rec%add("G%Domain%niglobal", G%Domain%niglobal)
+        call rec%add("G%Domain%njglobal", G%Domain%njglobal)
+        call rec%add("G%bathyT_brefore",  bathyT_TIM       )
+      endif
+  end select
   ! To initialize masks, the bathymetry in halo regions must be filled in
   call pass_var(G%bathyT, G%Domain)
+
+  select case (mode)
+    case (TIMH_capture)
+      if (capture) then
+        call bathyT_TIM%copy2Array(G%bathyT)
+        call rec%add("G%bathyT_after", bathyT_TIM)
+        call rec%close()
+        call mark_recorded(trim(mdl))
+      endif
+      call bathyT_TIM%free()
+  end select
 
   ! Determine the position of any open boundaries and create OBC
   call open_boundary_config(G, US, PF, OBC)
