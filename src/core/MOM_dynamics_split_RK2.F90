@@ -26,7 +26,7 @@ use MOM_domains,           only : To_North, To_East, Omit_Corners
 use MOM_domains,           only : create_group_pass, do_group_pass, group_pass_type
 use MOM_domains,           only : start_group_pass, complete_group_pass, pass_var, pass_vector
 use MOM_debugging,         only : hchksum, uvchksum, query_debugging_checks
-use MOM_error_handler,     only : MOM_error, MOM_mesg, FATAL, WARNING, is_root_pe
+use MOM_error_handler,     only : MOM_error, MOM_mesg, FATAL, WARNING, NOTE, is_root_pe
 use MOM_error_handler,     only : MOM_set_verbosity, callTree_showQuery
 use MOM_error_handler,     only : callTree_enter, callTree_leave, callTree_waypoint
 use MOM_file_parser,       only : get_param, log_version, param_file_type
@@ -80,6 +80,14 @@ use MOM_vert_friction,         only : updateCFLtruncationValue, vertFPmix
 use MOM_verticalGrid,          only : verticalGrid_type, get_thickness_units
 use MOM_verticalGrid,          only : get_flux_units, get_tr_flux_units
 use MOM_wave_interface,        only : wave_parameters_CS, Stokes_PGF
+
+use MOM_coms_helpers,  only: PE_here
+
+use posix, only : mkdir_posix
+use array_mod, only : RealArray_t, RealArray_c
+use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_bool, c_null_char, c_null_ptr
+use turbotmp_helperF, only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF, only : TIMH_capture, TIMH_runFORTRAN
 
 implicit none ; private
 
@@ -1531,6 +1539,16 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
   integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
   integer :: IsdB, IedB, JsdB, JedB
   integer :: nc           ! Number of tidal constituents to be harmonically analyzed
+
+  type(io_recorder)  :: rec
+  integer  :: mode, rc
+  integer  :: rank_num
+  logical            :: capture
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  character(len=4)   :: pe_string
+  type(RealArray_t)  :: h_tmp_TIM
+
   is   = G%isc  ; ie   = G%iec  ; js   = G%jsc  ; je   = G%jec ; nz = GV%ke
   isd  = G%isd  ; ied  = G%ied  ; jsd  = G%jsd  ; jed  = G%jed
   IsdB = G%IsdB ; IedB = G%IedB ; JsdB = G%JsdB ; JedB = G%JedB
@@ -1778,13 +1796,47 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
                    filename=dirs%input_filename, directory=dirs%restart_input_dir, &
                    success=read_h2, scale=1.0/GV%H_to_mks)
       if (read_uv .and. read_h2) then
+        call MOM_mesg("NOT !!!  IN DYNAMICS TMP_H PASS_VAR")
         call pass_var(CS%h_av, G%Domain, clock=id_clock_pass_init)
       else
         do concurrent (k=1:nz, j=jsd:jed, i=isd:ied)
           h_tmp(i,j,k) = h(i,j,k)
         enddo
         call continuity(CS%u_av, CS%v_av, h, h_tmp, uh, vh, dt, G, GV, US, CS%continuity_CSp, CS%OBC, pbv)
+        mode = getenv_mode("INITIALIZED_FIXED_H_TMP", default=TIMH_runFORTRAN)
+        select case (mode)
+          case (TIMH_capture)
+            capture = (.not. already_recorded(trim(mdl)))
+            if (capture) then
+              call h_tmp_TIM%alloc(lb=LBOUND(h_tmp), ub=UBOUND(h_tmp), source=h_tmp)
+              dir = "capture"
+              rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+              rank_num = PE_here()
+              write(pe_string, '(i4.4)') rank_num
+              binFile  = trim(dir) // "/" // trim(mdl) // "_" // trim(pe_string) // ".bin"
+              metaFile = trim(dir) // "/" // trim(mdl) // "_" // trim(pe_string) // ".meta"
+              call rec%open_write(binFile, metaFile)
+              call rec%add("G%isd_global"      , G%isd_global     )
+              call rec%add("G%jsd_global"      , G%jsd_global     )
+              call rec%add("G%ke"              , G%ke              )
+              call rec%add("G%Domain%nihalo"   , G%Domain%nihalo  )
+              call rec%add("G%Domain%njhalo"   , G%Domain%njhalo  )
+              call rec%add("G%Domain%niglobal" , G%Domain%niglobal)
+              call rec%add("G%Domain%njglobal" , G%Domain%njglobal)
+              call rec%add("h_tmp_TIM_before"  , h_tmp_TIM        )
+            endif
+        end select
         call pass_var(h_tmp, G%Domain, clock=id_clock_pass_init)
+        select case (mode)
+          case (TIMH_capture)
+            if (capture) then
+              call h_tmp_TIM%copy2Array(h_tmp)
+              call rec%add("h_tmp_TIM_after", h_tmp_TIM)
+              call rec%close()
+              call mark_recorded(trim(mdl))
+            endif
+            call h_tmp_TIM%free()
+        end select
         do concurrent (k=1:nz, j=jsd:jed, i=isd:ied)
           CS%h_av(i,j,k) = 0.5*(h(i,j,k) + h_tmp(i,j,k))
         enddo
