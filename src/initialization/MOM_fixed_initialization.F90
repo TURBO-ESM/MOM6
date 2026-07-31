@@ -86,7 +86,7 @@ subroutine MOM_initialize_fixed(G, US, OBC, PF)
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
 
-  mode = getenv_mode("INITIALIZED_FIXED_CAPTURE", default=TIMH_capture)
+  mode = getenv_mode("INITIALIZED_FIXED_CAPTURE", default=TIMH_runFORTRAN)
 
   call callTree_enter("MOM_initialize_fixed(), MOM_fixed_initialization.F90")
   call get_param(PF, mdl, "DEBUG", debug, default=.false.)
