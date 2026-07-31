@@ -105,15 +105,12 @@ subroutine MOM_initialize_fixed(G, US, OBC, PF)
   ! This also sets G%max_depth based on the input parameter MAXIMUM_DEPTH,
   ! or, if absent, is diagnosed as G%max_depth = max( G%D(:,:) )
   call MOM_initialize_topography(G%bathyT, G%max_depth, G, PF, US, meanSL=G%meanSL)
-
-  ! call bathyT_TIM%dup(G%bathyT)
   
   select case (mode)
     case (TIMH_capture)
       capture = (.not. already_recorded(trim(mdl)))
       if (capture) then
         call bathyT_TIM%alloc(lb=LBOUND(G%bathyT), ub=UBOUND(G%bathyT), source=G%bathyT)
-        ! call bathyT_TIM%copy2Array(G%bathyT)
         dir = "capture"
         rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
         rank_num = PE_here()
