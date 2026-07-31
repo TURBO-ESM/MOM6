@@ -7,7 +7,6 @@
 module MOM_fixed_initialization
 
 use MOM_debugging, only : hchksum, qchksum, uvchksum
-use MOM_coms_helpers, only: PE_here
 use MOM_domains, only : pass_var
 use MOM_dyn_horgrid, only : dyn_horgrid_type
 use MOM_error_handler, only : MOM_mesg, MOM_error, FATAL, WARNING, is_root_pe
@@ -31,6 +30,7 @@ use MOM_shared_initialization, only : compute_global_grid_integrals
 use MOM_shared_initialization, only : set_meanSL_from_file
 use MOM_unit_scaling, only : unit_scale_type
 
+use MOM_coms_helpers, only: PE_here
 use posix, only : mkdir_posix
 use array_mod, only : RealArray_t, RealArray_c
 use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_bool, c_null_char, c_null_ptr
