@@ -1541,8 +1541,8 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
   integer :: nc           ! Number of tidal constituents to be harmonically analyzed
 
   type(io_recorder)  :: rec
-  integer  :: mode, rc
-  integer  :: rank_num
+  integer            :: mode, rc
+  integer            :: rank_num
   logical            :: capture
   character(len=100) :: dir
   character(len=256) :: binFile, metaFile

@@ -76,13 +76,13 @@ subroutine MOM_initialize_fixed(G, US, OBC, PF)
   integer :: I, J
   logical :: debug
   type(io_recorder)  :: rec
-  integer  :: mode, rc
-  integer  :: rank_num
+  integer            :: mode, rc
+  integer            :: rank_num
   logical            :: capture
   character(len=100) :: dir
   character(len=256) :: binFile, metaFile
   character(len=4)   :: pe_string
-  type(RealArray_t) :: bathyT_TIM
+  type(RealArray_t)  :: bathyT_TIM
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
 
