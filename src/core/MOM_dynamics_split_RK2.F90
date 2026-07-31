@@ -26,7 +26,7 @@ use MOM_domains,           only : To_North, To_East, Omit_Corners
 use MOM_domains,           only : create_group_pass, do_group_pass, group_pass_type
 use MOM_domains,           only : start_group_pass, complete_group_pass, pass_var, pass_vector
 use MOM_debugging,         only : hchksum, uvchksum, query_debugging_checks
-use MOM_error_handler,     only : MOM_error, MOM_mesg, FATAL, WARNING, NOTE, is_root_pe
+use MOM_error_handler,     only : MOM_error, MOM_mesg, FATAL, WARNING, is_root_pe
 use MOM_error_handler,     only : MOM_set_verbosity, callTree_showQuery
 use MOM_error_handler,     only : callTree_enter, callTree_leave, callTree_waypoint
 use MOM_file_parser,       only : get_param, log_version, param_file_type
@@ -1796,7 +1796,6 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
                    filename=dirs%input_filename, directory=dirs%restart_input_dir, &
                    success=read_h2, scale=1.0/GV%H_to_mks)
       if (read_uv .and. read_h2) then
-        call MOM_mesg("NOT !!!  IN DYNAMICS TMP_H PASS_VAR")
         call pass_var(CS%h_av, G%Domain, clock=id_clock_pass_init)
       else
         do concurrent (k=1:nz, j=jsd:jed, i=isd:ied)
