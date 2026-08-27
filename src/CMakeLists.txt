@@ -18,6 +18,25 @@ target_link_libraries(mom6_ocean
     PUBLIC MOM6::framework MOM6::CVMix MOM6::GSW MARBL::marbl
 )
 
+# _TIM gates the AMReX bridge branches in core/MOM_continuity_PPM.F90 -- the only
+# file in the tree with `#ifdef _TIM` guards. PRIVATE: it changes how this target
+# compiles and is not part of its interface. Validated in cmake/MOM6Options.cmake,
+# which also enforces MOM6_INFRA=TIM.
+#
+# TIM::mom_bridge is linked here, on the target whose sources call it, rather than
+# onto the infra interface library: when turbo-stack builds MOM6 with
+# add_subdirectory() it defines TURBO::infra_r8 itself, and MOM6's whole standalone
+# dependency block is skipped. Linking here works either way.
+if(MOM6_ENABLE_TIM_BRIDGE)
+    if(NOT TARGET TIM::mom_bridge)
+        message(FATAL_ERROR
+            "MOM6_ENABLE_TIM_BRIDGE=ON, but the TIM in use does not provide "
+            "TIM::mom_bridge. Rebuild TIM with -DTIM_ENABLE_MOM_BRIDGE=ON.")
+    endif()
+    target_compile_definitions(mom6_ocean PRIVATE _TIM)
+    target_link_libraries(mom6_ocean PRIVATE TIM::mom_bridge)
+endif()
+
 # I/O modules from src/framework/: they depend on grid (which also lives in
 # mom6_ocean), so they compile here rather than in mom6_framework.
 target_sources(mom6_ocean PRIVATE
