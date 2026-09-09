@@ -1,6 +1,7 @@
 ! This file is part of MOM6, the Modular Ocean Model version 6.
 ! See the LICENSE file for licensing information.
 ! SPDX-License-Identifier: Apache-2.0
+!!SKILLS: 0.3
 
 !> Time step the adiabatic dynamic core of MOM using RK2 method.
 module MOM_dynamics_split_RK2
@@ -411,6 +412,8 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   logical :: BT_cont_BT_thick ! If true, use the BT_cont_type to estimate the
                               ! relative weightings of the layers in calculating
                               ! the barotropic accelerations.
+  real, dimension(:,:,:), contiguous, pointer :: h_u, h_v ! Views of CS%BT_cont%h_u/h_v, when present
+                              ! [H ~> m or kg m-2].
   logical :: Use_Stokes_PGF ! If true, add Stokes PGF to hydrostatic PGF
   !---For group halo pass
   logical :: showCallTree, sym
@@ -485,9 +488,13 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
     enddo ; enddo ; enddo
   endif
 
+  nullify(h_u, h_v)
   BT_cont_BT_thick = .false.
   if (associated(CS%BT_cont)) BT_cont_BT_thick = &
-    (allocated(CS%BT_cont%h_u) .and. allocated(CS%BT_cont%h_v))
+    (CS%BT_cont%h_u%associated() .and. CS%BT_cont%h_v%associated())
+  if (BT_cont_BT_thick) then
+    call CS%BT_cont%h_u%view(h_u) ; call CS%BT_cont%h_v%view(h_v)
+  endif
 
   if (CS%split_bottom_stress) then
     taux_bot => CS%taux_bot ; tauy_bot => CS%tauy_bot
@@ -698,7 +705,7 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
     call cpu_clock_end(id_clock_continuity)
     if (BT_cont_BT_thick) then
 
-      call btcalc(h, G, GV, CS%barotropic_CSp, CS%BT_cont%h_u, CS%BT_cont%h_v, &
+      call btcalc(h, G, GV, CS%barotropic_CSp, h_u, h_v, &
                   OBC=CS%OBC)
 
     endif
@@ -939,7 +946,7 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   !$omp target exit data map(delete: p_surf) if (associated(p_surf))
 
   if (BT_cont_BT_thick) then
-    call btcalc(h, G, GV, CS%barotropic_CSp, CS%BT_cont%h_u, CS%BT_cont%h_v, &
+    call btcalc(h, G, GV, CS%barotropic_CSp, h_u, h_v, &
                 OBC=CS%OBC)
     if (showCallTree) call callTree_wayPoint("done with btcalc[BT_cont_BT_thick] (step_MOM_dyn_split_RK2)")
   endif
@@ -962,7 +969,7 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   call horizontal_viscosity(u_av, v_av, h_av, uh, vh, CS%diffu, CS%diffv, &
                             MEKE, Varmix, G, GV, US, CS%hor_visc, hor_visc_nkblock(CS%hor_visc, GV), tv, dt, &
                             OBC=CS%OBC, BT=CS%barotropic_CSp, TD=thickness_diffuse_CSp, &
-                            ADp=CS%ADp, hu_cont=CS%BT_cont%h_u, hv_cont=CS%BT_cont%h_v, STOCH=STOCH)
+                            ADp=CS%ADp, hu_cont=h_u, hv_cont=h_v, STOCH=STOCH)
 
   call cpu_clock_end(id_clock_horvisc)
   if (showCallTree) call callTree_wayPoint("done with horizontal_viscosity (step_MOM_dyn_split_RK2)")
@@ -1532,6 +1539,7 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
   integer :: i, j, k, is, ie, js, je, isd, ied, jsd, jed, nz
   integer :: IsdB, IedB, JsdB, JedB
   integer :: nc           ! Number of tidal constituents to be harmonically analyzed
+  real, dimension(:,:,:), contiguous, pointer :: h_u, h_v ! Views of CS%BT_cont%h_u/h_v [H ~> m or kg m-2].
   is   = G%isc  ; ie   = G%iec  ; js   = G%jsc  ; je   = G%jec ; nz = GV%ke
   isd  = G%isd  ; ied  = G%ied  ; jsd  = G%jsd  ; jed  = G%jed
   IsdB = G%IsdB ; IedB = G%IedB ; JsdB = G%JsdB ; JedB = G%JedB
@@ -1747,12 +1755,16 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
                        CS%barotropic_CSp, restart_CS, calc_dtbt, CS%BT_cont, &
                        CS%OBC, CS%SAL_CSp, HA_CSp)
 
+  nullify(h_u, h_v)
+  if (CS%BT_cont%h_u%associated()) call CS%BT_cont%h_u%view(h_u)
+  if (CS%BT_cont%h_v%associated()) call CS%BT_cont%h_v%view(h_v)
+
   if (.not. query_initialized(CS%diffu, "diffu", restart_CS) .or. &
       .not. query_initialized(CS%diffv, "diffv", restart_CS)) then
     !$omp target update to(u, v, h, uh, vh)
     call horizontal_viscosity(u, v, h, uh, vh, CS%diffu, CS%diffv, MEKE, VarMix, G, GV, US, CS%hor_visc, &
                               hor_visc_nkblock(CS%hor_visc, GV), tv, dt, OBC=CS%OBC, BT=CS%barotropic_CSp, &
-                              TD=thickness_diffuse_CSp, hu_cont=CS%BT_cont%h_u, hv_cont=CS%BT_cont%h_v)
+                              TD=thickness_diffuse_CSp, hu_cont=h_u, hv_cont=h_v)
     !$omp target update from(CS%diffu, CS%diffv)
     call set_initialized(CS%diffu, "diffu", restart_CS)
     call set_initialized(CS%diffv, "diffv", restart_CS)
