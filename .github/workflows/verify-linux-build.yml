@@ -1,0 +1,296 @@
+# This file is part of MOM6, the Modular Ocean Model version 6.
+# See the LICENSE file for licensing information.
+# SPDX-License-Identifier: Apache-2.0
+
+# Build phase of "Linux verification" (verify-linux.yml), using the .testing
+# (autoconf) build. It uploads the `mom6-<variant>-artifact`s that
+# verify-linux-tests.yml consumes; that file's header defines the contract.
+#
+# An alternative producer (e.g. a CMake build) can replace this workflow in
+# verify-linux.yml if it uploads the same artifacts. It does not have to build
+# every variant itself: `coverage` needs the unit-test driver, `opt` the timing
+# driver, and `target`/`opt-target` are the base branch built with its own
+# .testing Makefile, so a producer may fall back to the recipes here for those.
+# build-coupled-api uploads nothing; it only checks that the FMS_cap driver
+# compiles.
+
+name: Linux verification build
+
+on:
+  workflow_call:
+
+# Workflow-level env is not inherited by a called workflow, so this repeats the
+# regression-target settings. build-target and build-opt-target need them: if
+# unset, the .testing Makefile silently clones NOAA-GFDL/MOM6 dev/gfdl instead.
+env:
+  MOM_TARGET_SLUG: ${{ github.repository }}
+  MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
+
+jobs:
+  build-symmetric:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 with symmetric indexing
+        run: make -C .testing -j build/symmetric/MOM6
+
+      - name: Prepare artifact
+        run: tar -cf mom6-symmetric.tar .testing/build/symmetric/MOM6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-symmetric-artifact
+          path: mom6-symmetric.tar
+          retention-days: 1
+
+  build-asymmetric:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 with asymmetric indexing
+        run: make -C .testing -j build/asymmetric/MOM6
+
+      - name: Prepare artifact
+        run: tar -cf mom6-asymmetric.tar .testing/build/asymmetric/MOM6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-asymmetric-artifact
+          path: mom6-asymmetric.tar
+          retention-days: 1
+
+  build-repro:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 with bit-reproducible optimization
+        run: make -C .testing -j build/repro/MOM6
+
+      - name: Prepare artifact
+        run: tar -cf mom6-repro.tar .testing/build/repro/MOM6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-repro-artifact
+          path: mom6-repro.tar
+          retention-days: 1
+
+  build-openmp:
+    # temporarily disable until we get GCC to accept OpenMP target directives
+    if: false
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 supporting OpenMP
+        run: make -C .testing -j build/openmp/MOM6
+
+      - name: Prepare artifact
+        run: tar -cf mom6-openmp.tar .testing/build/openmp/MOM6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-openmp-artifact
+          path: mom6-openmp.tar
+          retention-days: 1
+
+  build-target:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile target depedencies
+        run: |
+          make -C .testing \
+          DO_REGRESSION_TESTS=1 \
+          build/target_codebase
+          make -C .testing/build/target_codebase/.testing -j \
+          build/deps/lib/libFMS.a
+
+      - name: Compile target MOM6
+        run: |
+          make -C .testing -j \
+          DO_REGRESSION_TESTS=1 \
+          build/target/MOM6
+
+      - name: Prepare artifact
+        run: tar -cf mom6-target.tar .testing/build/target/MOM6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-target-artifact
+          path: mom6-target.tar
+          retention-days: 1
+
+  build-opt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 with aggressive optimization
+        run: make -C .testing -j build/opt/MOM6
+
+      - name: Compile timing tests
+        run: make -C .testing build.timing
+
+      - name: Prepare artifact
+        run: |
+          tar -cf mom6-opt.tar \
+          --exclude='.testing/build/timing/time_*.o' \
+          .testing/build/opt/MOM6 \
+          .testing/build/timing/time_*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-opt-artifact
+          path: mom6-opt.tar
+          retention-days: 1
+
+  build-opt-target:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile target dependencies
+        run: |
+          make -C .testing \
+          DO_REGRESSION_TESTS=1 \
+          build/target_codebase
+          make -C .testing/build/target_codebase/.testing -j \
+          build/deps/lib/libFMS.a
+
+      - name: Compile target MOM6
+        run: |
+          make -C .testing -j \
+          DO_REGRESSION_TESTS=1 \
+          build/opt_target/MOM6
+
+      - name: Compile target timing tests
+        run: |
+          make -C .testing/build/target_codebase/.testing \
+          DO_REGRESSION_TESTS=1 \
+          build.timing
+
+      - name: Prepare artifact
+        run: |
+          tar -cf mom6-opt-target.tar \
+          --exclude='.testing/build/target_codebase/.testing/build/timing/time_*.o' \
+          .testing/build/opt_target/MOM6 \
+          .testing/build/target_codebase/.testing/build/timing/time_*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-opt-target-artifact
+          path: mom6-opt-target.tar
+          retention-days: 1
+
+  build-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 with code coverage
+        run: make -C .testing -j build/cov/MOM6
+
+      - name: Compile MOM6 unit tests
+        run: |
+          make -C .testing -j build/unit/test_MOM_file_parser
+          make -C .testing -j build.unit
+
+      - name: Prepare artifact
+        run: |
+          tar -cf mom6-coverage.tar \
+          --exclude='.testing/build/unit/test_*.o' \
+          .testing/build/cov/MOM6 \
+          .testing/build/cov/*.gcno \
+          .testing/build/unit/test_* \
+          .testing/build/unit/*.gcno
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mom6-coverage-artifact
+          path: mom6-coverage.tar
+          retention-days: 1
+
+  build-coupled-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/ubuntu-setup/
+
+      - name: Compile dependencies
+        run: |
+          make -C .testing -j build/deps/lib/libFMS.a
+          make -C .testing -j PKG= build/deps/lib/libgsw.a
+          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+      - name: Compile MOM6 for the GFDL coupled driver
+        run: make -C .testing -j check_mom6_api_coupled

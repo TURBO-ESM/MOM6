@@ -2,9 +2,9 @@
 # See the LICENSE file for licensing information.
 # SPDX-License-Identifier: Apache-2.0
 
-# Test phase of "Linux verification" (verify-linux.yml), which builds the
-# executables and then calls this workflow. Split out so the build phase can be
-# swapped for another producer without touching the tests.
+# Test phase of "Linux verification" (verify-linux.yml), which calls this
+# workflow after the build phase (verify-linux-build.yml). The two are separate
+# so the build can be swapped for another producer without touching the tests.
 #
 # Contract with the build phase: the calling run has uploaded, for each variant
 # a job here uses, an artifact `mom6-<variant>-artifact` holding
