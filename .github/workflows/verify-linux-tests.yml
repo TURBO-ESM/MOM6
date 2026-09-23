@@ -31,6 +31,12 @@ on:
       CODECOV_TOKEN:
         required: false
 
+# Jobs without a `permissions:` block would otherwise inherit everything the
+# caller grants, including the cleanup jobs' id-token: write, and these jobs run
+# the PR's code. Jobs that need more (gpu-port-report, cleanup-*) declare it.
+permissions:
+  contents: read
+
 # Workflow-level env is not inherited by a called workflow, so this repeats
 # verify-linux.yml's. The `github` context, by contrast, is the caller's.
 env:

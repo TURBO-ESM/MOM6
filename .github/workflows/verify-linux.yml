@@ -58,7 +58,8 @@ jobs:
     needs: build
     # A called workflow's jobs can only narrow these, so this is the union of
     # what they request: gpu-port-report reads other runs' artifacts, the
-    # cleanup jobs delete this run's.
+    # cleanup jobs delete this run's. verify-linux-tests.yml narrows every other
+    # job back to contents: read.
     permissions:
       contents: read
       actions: read
