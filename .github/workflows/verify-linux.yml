@@ -46,6 +46,10 @@ jobs:
   # artifact contract in verify-linux-tests.yml.
 
   build:
+    # Checkout is all the build jobs need; artifact upload uses the runner's own
+    # token, not GITHUB_TOKEN. Without this they get the repository default.
+    permissions:
+      contents: read
     uses: ./.github/workflows/verify-linux-build.yml
 
   # Test phase: every test, timing, coverage and artifact-cleanup job.
