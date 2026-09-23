@@ -7,12 +7,12 @@
 # verify-linux-tests.yml consumes; that file's header defines the contract.
 #
 # An alternative producer (e.g. a CMake build) can replace this workflow in
-# verify-linux.yml if it uploads the same artifacts. It does not have to build
-# every variant itself: `coverage` needs the unit-test driver, `opt` the timing
-# driver, and `target`/`opt-target` are the base branch built with its own
-# .testing Makefile, so a producer may fall back to the recipes here for those.
-# build-coupled-api uploads nothing; it only checks that the FMS_cap driver
-# compiles.
+# verify-linux.yml if it uploads the same artifacts. MOM6's CMake build covers
+# only the solo driver so far, so producing all of them takes more than the
+# `MOM6` executable: `coverage` needs the unit-test driver, `opt` the timing
+# driver, and `target`/`opt-target` are the regression base branch built the
+# same way. build-coupled-api uploads nothing; it only checks that the FMS_cap
+# driver compiles.
 #
 # verify-linux.yml grants this workflow only `contents: read`, which is all
 # these jobs need (artifact upload uses the runner's own token, not
