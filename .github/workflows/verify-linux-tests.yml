@@ -18,10 +18,13 @@
 #                                          .testing/build/target_codebase/.testing/build/timing/time_*
 #   coverage                               .testing/build/cov/MOM6, .testing/build/cov/*.gcno
 #                                          .testing/build/unit/test_*, .testing/build/unit/*.gcno
+#   openmp (disabled)                      .testing/build/openmp/MOM6
 #
 # The jobs pass `-o <executable>` to make so these are used as-is, never rebuilt.
 # `target` and `opt-target` are only built for pull requests, matching the jobs
-# here that consume them.
+# here that consume them. `openmp` is not built or tested at all for now
+# (build-openmp and test-openmp are `if: false`); a producer only needs to
+# supply it once test-openmp is re-enabled.
 
 name: Linux verification tests
 
