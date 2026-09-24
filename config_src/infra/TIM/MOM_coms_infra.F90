@@ -328,6 +328,8 @@ function field_chksum_real_1d(field, pelist, mask_val) result(chksum)
   call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
 
   chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_1d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -340,12 +342,14 @@ function field_chksum_real_2d(field, pelist, mask_val) result(chksum)
   type(RealArray_t), target      :: field_arr
 
   if(present(pelist)) then
-    call mpp_error(WARNING, 'field_chksum_real_1d: pelist argument is not supported; the specific PE list is ignored')
+    call mpp_error(WARNING, 'field_chksum_real_2d: pelist argument is not supported; the specific PE list is ignored')
   end if
 
   call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
 
   chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_2d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -358,12 +362,14 @@ function field_chksum_real_3d(field, pelist, mask_val) result(chksum)
   type(RealArray_t), target      :: field_arr
 
   if(present(pelist)) then
-    call mpp_error(WARNING, 'field_chksum_real_1d: pelist argument is not supported; the specific PE list is ignored')
+    call mpp_error(WARNING, 'field_chksum_real_3d: pelist argument is not supported; the specific PE list is ignored')
   end if
 
   call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
 
   chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_3d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -376,12 +382,14 @@ function field_chksum_real_4d(field, pelist, mask_val) result(chksum)
   type(RealArray_t), target      :: field_arr
 
   if(present(pelist)) then
-    call mpp_error(WARNING, 'field_chksum_real_1d: pelist argument is not supported; the specific PE list is ignored')
+    call mpp_error(WARNING, 'field_chksum_real_4d: pelist argument is not supported; the specific PE list is ignored')
   end if
 
   call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
 
   chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_4d
 
 ! sum_across_PEs wrappers
