@@ -1322,9 +1322,8 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAu =  q * vh - d(KE)/dx.
   if (CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(u(:,:,k), vh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do j=js,je ; do I=Isq,Ieq
+    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+        DO_LOCALITY(local(v_u, q_u, third_order, fifth_order, seventh_order, u_q8, u_q6, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       ! check whether there is masked land points in the stencil
       third_order = (G%mask2dCu(I,j-2) * G%mask2dCu(I,j-1) * G%mask2dCu(I,j) * &
@@ -1370,13 +1369,10 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         CAu(I,j,k) = (q_u * v_u)
 
       endif
-    enddo ; enddo
-      !$omp target update to(CAu(:,:,k))
     enddo
   elseif (CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(u(:,:,k), vh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do j=js,je ; do I=Isq,Ieq
+    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+        DO_LOCALITY(local(v_u, q_u, third_order, fifth_order, u_q6, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       third_order = (G%mask2dCu(I,j-2) * G%mask2dCu(I,j-1) * G%mask2dCu(I,j) * &
                      G%mask2dCu(I,j+1) * G%mask2dCu(I,j+2))
@@ -1409,13 +1405,10 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         endif
         CAu(I,j,k) = (q_u * v_u)
       endif
-    enddo ; enddo
-      !$omp target update to(CAu(:,:,k))
     enddo
   elseif (CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(u(:,:,k), vh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do j=js,je ; do I=Isq,Ieq
+    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+        DO_LOCALITY(local(v_u, q_u, third_order, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       third_order = (G%mask2dCu(I,j-2) * G%mask2dCu(I,j-1) * G%mask2dCu(I,j) * &
                      G%mask2dCu(I,j+1) * G%mask2dCu(I,j+2))
@@ -1438,8 +1431,6 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         endif
         CAu(I,j,k) = (q_u * v_u)
       endif
-    enddo ; enddo
-      !$omp target update to(CAu(:,:,k))
     enddo
   endif
 
@@ -1447,9 +1438,8 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAv = - q * uh - d(KE)/dy.
   if (CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(v(:,:,k), uh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do J=Jsq,Jeq ; do i=is,ie
+    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+        DO_LOCALITY(local(u_v, q_v, third_order, fifth_order, seventh_order, v_q8, v_q6, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
       ! check whether there is any masked land values within the stencils
@@ -1496,13 +1486,10 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         CAv(i,J,k) = - (q_v * u_v)
       endif
 
-    enddo ; enddo
-      !$omp target update to(CAv(:,:,k))
     enddo
   elseif (CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(v(:,:,k), uh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do J=Jsq,Jeq ; do i=is,ie
+    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+        DO_LOCALITY(local(u_v, q_v, third_order, fifth_order, v_q6, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
       third_order = (G%mask2dCv(i-2,J) * G%mask2dCv(i-1,J) * G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * &
@@ -1538,13 +1525,10 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         CAv(i,J,k) = - (q_v * u_v)
       endif
 
-    enddo ; enddo
-      !$omp target update to(CAv(:,:,k))
     enddo
   elseif (CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO) then
-    do k=ksc,kec ! TODO: port
-      !$omp target update from(v(:,:,k), uh(:,:,k), abs_vort(:,:,k), h_q(:,:,k), q(:,:,k))
-    do J=Jsq,Jeq ; do i=is,ie
+    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+        DO_LOCALITY(local(u_v, q_v, third_order, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
       third_order = (G%mask2dCv(i-2,J) * G%mask2dCv(i-1,J) * G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * &
@@ -1570,8 +1554,6 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         CAv(i,J,k) = - (q_v * u_v)
       endif
 
-    enddo ; enddo
-      !$omp target update to(CAv(:,:,k))
     enddo
   endif
 end subroutine CorAdv_weno
@@ -1874,86 +1856,85 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
     ! The following discretization of KE is based on the one-dimensional third-order
     ! upwind scheme which does not take horizontal grid factors into account
 
-    do k=ksc,kec ! TODO: port
-      ! TODO: GPU data tansfers?
-      if (CS%KE_use_limiter) then
-        do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-          ! compute the masking to make sure that inland values are not used
-          third_order_u = (G%mask2dCu(I-2,j) * G%mask2dCu(I-1,j)* &
-                         G%mask2dCu(I,j) * G%mask2dCu(I+1,j))
+    if (CS%KE_use_limiter) then
+      do concurrent (k=ksc:kec, j=Jsq:Jeq+1, i=Isq:Ieq+1) &
+          DO_LOCALITY(local(up, um, vp, vm, third_order_u, third_order_v))
+        ! compute the masking to make sure that inland values are not used
+        third_order_u = (G%mask2dCu(I-2,j) * G%mask2dCu(I-1,j)* &
+                       G%mask2dCu(I,j) * G%mask2dCu(I+1,j))
 
-          if (third_order_u == 1) then
-            up = (7.0 * (u(I-1,j,k) + u(I,j,k)) - (u(I-2,j,k) + u(I+1,j,k))) * C1_12
-            call UP3_Koren_limiter_reconstruction(u(I-2:I+1,j,k), up, um)
+        if (third_order_u == 1) then
+          up = (7.0 * (u(I-1,j,k) + u(I,j,k)) - (u(I-2,j,k) + u(I+1,j,k))) * C1_12
+          call UP3_Koren_limiter_reconstruction(u(I-2:I+1,j,k), up, um)
+        else
+          up = (u(I-1,j,k) + u(I,j,k))*0.5
+          if (up>0.) then
+            um = u(I-1,j,k)
+          elseif (up<0.) then
+            um = u(I,j,k)
           else
-            up = (u(I-1,j,k) + u(I,j,k))*0.5
-            if (up>0.) then
-              um = u(I-1,j,k)
-            elseif (up<0.) then
-              um = u(I,j,k)
-            else
-              um = up
-            endif
+            um = up
           endif
+        endif
 
-          third_order_v = (G%mask2dCv(i,J-2) * G%mask2dCv(i,J-1)* &
-                         G%mask2dCv(i,J) * G%mask2dCv(i,J+1))
-          if (third_order_v ==1) then
-            vp = (7.0 * (v(i,J-1,k) + v(i,J,k)) - (v(i,J-2,k) + v(i,J+1,k))) * C1_12
-            call UP3_Koren_limiter_reconstruction(v(i,J-2:J+1,k), vp, vm)
+        third_order_v = (G%mask2dCv(i,J-2) * G%mask2dCv(i,J-1)* &
+                       G%mask2dCv(i,J) * G%mask2dCv(i,J+1))
+        if (third_order_v ==1) then
+          vp = (7.0 * (v(i,J-1,k) + v(i,J,k)) - (v(i,J-2,k) + v(i,J+1,k))) * C1_12
+          call UP3_Koren_limiter_reconstruction(v(i,J-2:J+1,k), vp, vm)
+        else
+          vp = (v(i,J-1,k) + v(i,J,k))*0.5
+          if (vp>0.) then
+            vm = v(i,J-1,k)
+          elseif (vp<0.) then
+            vm = v(i,J,k)
           else
-            vp = (v(i,J-1,k) + v(i,J,k))*0.5
-            if (vp>0.) then
-              vm = v(i,J-1,k)
-            elseif (vp<0.) then
-              vm = v(i,J,k)
-            else
-              vm = vp
-            endif
+            vm = vp
           endif
+        endif
 
-          KE(i,j,k) = ( (um*um) + (vm*vm) )*0.5
-        enddo ; enddo
-      else
-        do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-          ! compute the masking to make sure that inland values are not used
-          third_order_u = (G%mask2dCu(I-2,j) * G%mask2dCu(I-1,j)* &
-                         G%mask2dCu(I,j) * G%mask2dCu(I+1,j))
+        KE(i,j,k) = ( (um*um) + (vm*vm) )*0.5
+      enddo
+    else
+      do concurrent (k=ksc:kec, j=Jsq:Jeq+1, i=Isq:Ieq+1) &
+          DO_LOCALITY(local(up, um, vp, vm, third_order_u, third_order_v))
+        ! compute the masking to make sure that inland values are not used
+        third_order_u = (G%mask2dCu(I-2,j) * G%mask2dCu(I-1,j)* &
+                       G%mask2dCu(I,j) * G%mask2dCu(I+1,j))
 
-          if (third_order_u == 1) then
-            up = (7.0 * (u(I-1,j,k) + u(I,j,k)) - (u(I-2,j,k) + u(I+1,j,k))) * C1_12
-            call UP3_reconstruction(u(I-2:I+1,j,k), up, um)
+        if (third_order_u == 1) then
+          up = (7.0 * (u(I-1,j,k) + u(I,j,k)) - (u(I-2,j,k) + u(I+1,j,k))) * C1_12
+          call UP3_reconstruction(u(I-2:I+1,j,k), up, um)
+        else
+          up = (u(I-1,j,k) + u(I,j,k))*0.5
+          if (up>0.) then
+            um = u(I-1,j,k)
+          elseif (up<0.) then
+            um = u(I,j,k)
           else
-            up = (u(I-1,j,k) + u(I,j,k))*0.5
-            if (up>0.) then
-              um = u(I-1,j,k)
-            elseif (up<0.) then
-              um = u(I,j,k)
-            else
-              um = up
-            endif
+            um = up
           endif
+        endif
 
-          third_order_v = (G%mask2dCv(i,J-2) * G%mask2dCv(i,J-1)* &
-                         G%mask2dCv(i,J) * G%mask2dCv(i,J+1))
-          if (third_order_v ==1) then
-            vp = (7.0 * (v(i,J-1,k) + v(i,J,k)) - (v(i,J-2,k) + v(i,J+1,k))) * C1_12
-            call UP3_reconstruction(v(i,J-2:J+1,k), vp, vm)
+        third_order_v = (G%mask2dCv(i,J-2) * G%mask2dCv(i,J-1)* &
+                       G%mask2dCv(i,J) * G%mask2dCv(i,J+1))
+        if (third_order_v ==1) then
+          vp = (7.0 * (v(i,J-1,k) + v(i,J,k)) - (v(i,J-2,k) + v(i,J+1,k))) * C1_12
+          call UP3_reconstruction(v(i,J-2:J+1,k), vp, vm)
+        else
+          vp = (v(i,J-1,k) + v(i,J,k))*0.5
+          if (vp>0.) then
+            vm = v(i,J-1,k)
+          elseif (vp<0.) then
+            vm = v(i,J,k)
           else
-            vp = (v(i,J-1,k) + v(i,J,k))*0.5
-            if (vp>0.) then
-              vm = v(i,J-1,k)
-            elseif (vp<0.) then
-              vm = v(i,J,k)
-            else
-              vm = vp
-            endif
+            vm = vp
           endif
+        endif
 
-          KE(i,j,k) = ( (um*um) + (vm*vm) )*0.5
-        enddo ; enddo
-      endif
-    enddo
+        KE(i,j,k) = ( (um*um) + (vm*vm) )*0.5
+      enddo
+    endif
   endif
 
   ! Term - d(KE)/dx.
@@ -1968,7 +1949,7 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
 end subroutine gradKE
 
 !> Reconstruct the scalar (e.g., pv, vorticity) onto point i-1/2 using a third-order upwind scheme
-subroutine UP3_reconstruction(q4,u,qr)
+pure subroutine UP3_reconstruction(q4,u,qr)
   real, intent(in)    :: q4(4)            !< Tracer values on points i-2, i-1, i, i+1 [A ~> a]
   real, intent(in)    :: u                !< Velocity or thickness flux on point i-1/2
                                           !! [l t-1 ~> m s-1] or [l2 t-1 ~> m2 s-1]
@@ -1986,7 +1967,7 @@ end subroutine UP3_reconstruction
 
 !> Reconstruct the scalar (e.g., PV, vorticity) onto point i-1/2
 !! using a third-order upwind scheme with the Koren flux limiter
-subroutine UP3_Koren_limiter_reconstruction(q4,u,qr)
+pure subroutine UP3_Koren_limiter_reconstruction(q4,u,qr)
   real, intent(in)    :: q4(4)            !< Tracer values on points i-2, i-1, i, i+1 [A ~> a]
   real, intent(in)    :: u                !< Velocity or thickness flux on point i-1/2
                                           !! [L T-1 ~> m s-1] or [L2 T-1 ~> m2 s-1]
@@ -2017,7 +1998,7 @@ subroutine UP3_Koren_limiter_reconstruction(q4,u,qr)
 end subroutine UP3_Koren_limiter_reconstruction
 
 !> Compute the factor for the WENO weights
-function fac_fn(tau, b) result(fac)
+pure function fac_fn(tau, b) result(fac)
   real, intent(in)  :: tau  !< Difference of the smoothness indicator [A ~> a]
   real, intent(in)  :: b    !< The smoothness indicator [A ~> a]
   real :: fac               !< The factor for the weight [nondim]
@@ -2029,7 +2010,7 @@ end function fac_fn
 
 !> Reconstruct the tracer (e.g., PV, vorticity) onto the point i-1/2 using a third-order WENO scheme
 !! This reconstruction is thickness-weighted
-subroutine weno_three_h_weight_reconstruction(q4, h4, u4, &
+pure subroutine weno_three_h_weight_reconstruction(q4, h4, u4, &
                                               h_tiny, u, qr, velocity_smoothing)
     real, intent(in)    :: q4(4)   !< Tracer value times thickness on points i-2, i-1, i, i+1 [A ~> a]
     real, intent(in)    :: h4(4)   !< Thickness values on points i-2, i-1, i, i+1 [L ~> m]
@@ -2097,7 +2078,7 @@ subroutine weno_three_h_weight_reconstruction(q4, h4, u4, &
 end subroutine weno_three_h_weight_reconstruction
 
 !> Compute the smoothness indicator for the two-point stencil of the third-order WENO scheme
-subroutine weno_three_weight(q2, w0)
+pure subroutine weno_three_weight(q2, w0)
     real, intent(in) :: q2(2)    !< Tracer values on the two-point stencil [A ~> a]
     real, intent(inout) :: w0    !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2106,7 +2087,7 @@ subroutine weno_three_weight(q2, w0)
 end subroutine weno_three_weight
 
 !> Reconstruction in the second upwind stencil of the third-order WENO scheme
-subroutine weno_three_reconstruction_0(q2, w0)
+pure subroutine weno_three_reconstruction_0(q2, w0)
     real, intent(in) :: q2(2)    !< Tracer values on the two-point stencil [A ~> a]
     real, intent(inout) :: w0    !< Reconstruction of the quantity [A2 ~> a2]
 
@@ -2115,7 +2096,7 @@ subroutine weno_three_reconstruction_0(q2, w0)
 end subroutine weno_three_reconstruction_0
 
 !> Reconstruction in the first upwind stencil for third-order WENO scheme
-subroutine weno_three_reconstruction_1(q2, w0)
+pure subroutine weno_three_reconstruction_1(q2, w0)
     real, intent(in) :: q2(2)    !< Tracer values on the two-point stencil [A ~> a]
     real, intent(inout) :: w0    !< Reconstruction of the quantity [A ~> a]
 
@@ -2126,7 +2107,7 @@ end subroutine weno_three_reconstruction_1
 
 !> Reconstruct the tracer (e.g., PV, vorticity) onto point i-1/2 using a fifth-order WENO scheme
 !! The reconstruction is weighted by the thickness
-subroutine weno_five_h_weight_reconstruction(q6, h6, u6, &
+pure subroutine weno_five_h_weight_reconstruction(q6, h6, u6, &
                                              h_tiny, u, qr, velocity_smoothing)
     real, intent(in)    :: q6(6)
     !< Tracer values on points i-3, i-2, i-1, i, i+1, i+2 [A ~> a]
@@ -2207,7 +2188,7 @@ subroutine weno_five_h_weight_reconstruction(q6, h6, u6, &
 end subroutine weno_five_h_weight_reconstruction
 
 !> Compute the smoothness indicator for the third upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_weight_0(q3, w0)
+pure subroutine weno_five_weight_0(q3, w0)
   real, intent(in) :: q3(3)       !< Tracer values on the three-point stencil [A ~> a]
   real, intent(inout) :: w0       !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2217,7 +2198,7 @@ subroutine weno_five_weight_0(q3, w0)
 end subroutine weno_five_weight_0
 
 !> Compute the smoothness indicator for the second upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_weight_1(q3, w1)
+pure subroutine weno_five_weight_1(q3, w1)
   real, intent(in) :: q3(3)        !< Tracer values on the three-point stencil [A ~> a]
   real, intent(inout) :: w1        !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2227,7 +2208,7 @@ subroutine weno_five_weight_1(q3, w1)
 end subroutine weno_five_weight_1
 
 !> Compute the smoothness indicator for the first upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_weight_2(q3, w2)
+pure subroutine weno_five_weight_2(q3, w2)
   real, intent(in) :: q3(3)        !< Tracer values on the three-point stencil [A ~> a]
   real, intent(inout) :: w2        !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2237,7 +2218,7 @@ subroutine weno_five_weight_2(q3, w2)
 end subroutine weno_five_weight_2
 
 !> Reconstruction in the third upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_reconstruction_0(q3, p0)
+pure subroutine weno_five_reconstruction_0(q3, p0)
   real, intent(in) :: q3(3)        !< Tracer values on three points [A ~> a]
   real, intent(inout) :: p0        !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_6 = 1.0/6.0 ! One sixth [nondim]
@@ -2247,7 +2228,7 @@ subroutine weno_five_reconstruction_0(q3, p0)
 end subroutine weno_five_reconstruction_0
 
 !> Reconstruction in the second upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_reconstruction_1(q3, p1)
+pure subroutine weno_five_reconstruction_1(q3, p1)
   real, intent(in) :: q3(3)         !< Tracer values on the three-point stencil [A ~> a]
   real, intent(inout) :: p1         !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_6 = 1.0/6.0 ! One sixth [nondim]
@@ -2257,7 +2238,7 @@ subroutine weno_five_reconstruction_1(q3, p1)
 end subroutine weno_five_reconstruction_1
 
 !> Reconstruction in the first upwind stencil of the fifth-order WENO scheme
-subroutine weno_five_reconstruction_2(q3, p2)
+pure subroutine weno_five_reconstruction_2(q3, p2)
   real, intent(in) :: q3(3)          !< Tracer values on the three-point stencil [A ~> a]
   real, intent(inout) :: p2          !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_6 = 1.0/6.0  ! One sixth [nondim]
@@ -2269,7 +2250,7 @@ end subroutine weno_five_reconstruction_2
 
 !> Reconstruct the tracer (e.g., PV, vorticity) onto point i-1/2 using a seventh-order WENO scheme
 !! This reconstruction computes a thickness weighted average of PV
-subroutine weno_seven_h_weight_reconstruction(q8, h8, u8, &
+pure subroutine weno_seven_h_weight_reconstruction(q8, h8, u8, &
                                             h_tiny, u, qr, velocity_smoothing)
   real, intent(in)    :: q8(8)
   !< Tracer values on points i-4, i-3, i-2, i-1, i, i+1, i+2, i+3
@@ -2362,7 +2343,7 @@ subroutine weno_seven_h_weight_reconstruction(q8, h8, u8, &
 end subroutine weno_seven_h_weight_reconstruction
 
 !> Compute the smoothness indicator for the fourth upwind stencil of the seventh-order WENO scheme
-subroutine weno_seven_weight_0(q4, w0)
+pure subroutine weno_seven_weight_0(q4, w0)
   real, intent(in) :: q4(4)          !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: w0          !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2374,7 +2355,7 @@ subroutine weno_seven_weight_0(q4, w0)
 end subroutine weno_seven_weight_0
 
 !> Compute the smoothness indicator for the third upwind stencil of the seventh-order WENO scheme
-subroutine weno_seven_weight_1(q4, w1)
+pure subroutine weno_seven_weight_1(q4, w1)
   real, intent(in) :: q4(4)          !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: w1          !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2386,7 +2367,7 @@ subroutine weno_seven_weight_1(q4, w1)
 end subroutine weno_seven_weight_1
 
 !> Compute the smoothness indicator for the second upwind stencil of the seventh-order WENO scheme
-subroutine weno_seven_weight_2(q4, w2)
+pure subroutine weno_seven_weight_2(q4, w2)
   real, intent(in) :: q4(4)           !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: w2           !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2398,7 +2379,7 @@ subroutine weno_seven_weight_2(q4, w2)
 end subroutine weno_seven_weight_2
 
 !> Compute smoothness indicator for the first upwind stencil of the seventh-order WENO scheme
-subroutine weno_seven_weight_3(q4, w3)
+pure subroutine weno_seven_weight_3(q4, w3)
   real, intent(in) :: q4(4)           !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: w3           !< Smoothness indicator for this stencil [A2 ~> a2]
 
@@ -2410,7 +2391,7 @@ subroutine weno_seven_weight_3(q4, w3)
 end subroutine weno_seven_weight_3
 
 !> Reconstruction in the fourth upwind stencil for seventh-order WENO scheme
-subroutine weno_seven_reconstruction_0(q4, p0)
+pure subroutine weno_seven_reconstruction_0(q4, p0)
   real, intent(in) :: q4(4)            !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: p0            !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_24 = 1.0/24.0  ! One twenty fourth [nondim]
@@ -2420,7 +2401,7 @@ subroutine weno_seven_reconstruction_0(q4, p0)
 end subroutine weno_seven_reconstruction_0
 
 !> Reconstruction in the third upwind stencil for seventh-order WENO scheme
-subroutine weno_seven_reconstruction_1(q4, p1)
+pure subroutine weno_seven_reconstruction_1(q4, p1)
   real, intent(in) :: q4(4)            !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: p1            !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_24 = 1.0/24.0  ! One twenty fourth [nondim]
@@ -2430,7 +2411,7 @@ subroutine weno_seven_reconstruction_1(q4, p1)
 end subroutine weno_seven_reconstruction_1
 
 !> Reconstruction in the second upwind stencil for seventh-order WENO scheme
-subroutine weno_seven_reconstruction_2(q4, p2)
+pure subroutine weno_seven_reconstruction_2(q4, p2)
   real, intent(in) :: q4(4)             !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: p2             !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_24 = 1.0/24.0   ! One twenty fourth [nondim]
@@ -2440,7 +2421,7 @@ subroutine weno_seven_reconstruction_2(q4, p2)
 end subroutine weno_seven_reconstruction_2
 
 !> Reconstruction in the first upwind stencil for seventh-order WENO scheme
-subroutine weno_seven_reconstruction_3(q4, p3)
+pure subroutine weno_seven_reconstruction_3(q4, p3)
   real, intent(in) :: q4(4)            !< Tracer values on the four-point stencil [A ~> a]
   real, intent(inout) :: p3            !< Reconstruction of the quantity [A ~> a]
   real, parameter :: C1_24 = 1.0/24.0  ! One twenty fourth [nondim]
