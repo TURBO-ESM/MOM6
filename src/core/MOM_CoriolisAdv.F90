@@ -1369,38 +1369,11 @@ subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Wav
 
   ! Diagnostics
   !$omp target exit data map(from: RV) if (CS%id_RV > 0)
-  !$omp target exit data map(from: PV) if (CS%id_RV > 0)
+  !$omp target exit data map(from: PV) if (CS%id_PV > 0)
   !$omp target exit data map(from: AD%gradKEu) if (associated(AD%gradKEu))
   !$omp target exit data map(from: AD%gradKEv) if (associated(AD%gradKEv))
   !$omp target exit data map(from: AD%rv_x_u) if (associated(AD%rv_x_u))
-  !$omp target exit data map(from: AD%rv_x_u) if (associated(AD%rv_x_u))
-  !$omp target exit data map(from: CAuS, CAvS) if (Stokes_VF)
-
-  !$omp target exit data map(delete: Area_h, Area_q)
-  !$omp target exit data map(delete: dvdx, dudy)
-  !$omp target exit data map(delete: hArea_u, hArea_v)
-  !$omp target exit data map(delete: rel_vort, abs_vort, q, Ih_q)
-  !$omp target exit data map(delete: h_q) if (use_weno)
-  !$omp target exit data map(delete: a, b, c, d, ep_u, ep_v)
-  !$omp target exit data map(delete: KE, KEx, KEy)
-  !$omp target exit data map(delete: dvSdx, duSdy, stk_vort, qS) if (Stokes_VF)
-  !$omp target exit data map(delete: uh_center, vh_center) if (CS%Coriolis_En_Dis)
-  !$omp target exit data map(delete: uh_min, vh_min) if (CS%Coriolis_En_Dis)
-  !$omp target exit data map(delete: uh_max, vh_max) if (CS%Coriolis_En_Dis)
-  !$omp target exit data map(delete: q2) &
-  !$omp     if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
-
-  ! TODO: Move outside function
-  !$omp target exit data map(delete: pbv, pbv%por_face_areaU, pbv%por_face_areaV) &
-  !$omp   if (CS%Coriolis_En_Dis)
-
-  ! Diagnostics
-  !$omp target exit data map(from: RV) if (CS%id_RV > 0)
-  !$omp target exit data map(from: PV) if (CS%id_RV > 0)
-  !$omp target exit data map(from: AD%gradKEu) if (associated(AD%gradKEu))
-  !$omp target exit data map(from: AD%gradKEv) if (associated(AD%gradKEv))
-  !$omp target exit data map(from: AD%rv_x_u) if (associated(AD%rv_x_u))
-  !$omp target exit data map(from: AD%rv_x_u) if (associated(AD%rv_x_u))
+  !$omp target exit data map(from: AD%rv_x_v) if (associated(AD%rv_x_v))
   !$omp target exit data map(from: CAuS, CAvS) if (Stokes_VF)
 
   ! Here the various Coriolis-related derived quantities are offered for averaging.
