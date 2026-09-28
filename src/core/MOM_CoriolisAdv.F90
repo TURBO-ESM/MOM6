@@ -239,16 +239,16 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   ! Local variables
   type(RealArray_t) :: Area_h_a, Area_q_a, RV_a, PV_a, CAuS_a, CAvS_a
   real, dimension(:,:,:), contiguous, pointer :: u, v, h, uh, vh, CAu, CAv
-  real, dimension(SZIB_(G),SZJB_(G)) :: &
+  real, dimension(:,:), contiguous, pointer :: &
     Area_q      ! The sum of the ocean areas at the 4 adjacent thickness points [L2 ~> m2].
-  real, dimension(SZI_(G),SZJ_(G)) :: &
+  real, dimension(:,:), contiguous, pointer :: &
     Area_h      ! The ocean area at h points [L2 ~> m2].  Area_h is used to find the
                 ! average thickness in the denominator of q.  0 for land points.
-  real, dimension(SZIB_(G),SZJB_(G),SZK_(GV)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: &
     PV, &       ! A diagnostic array of the potential vorticities [H-1 T-1 ~> m-1 s-1 or m2 kg-1 s-1].
     RV          ! A diagnostic array of the relative vorticities [T-1 ~> s-1].
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(G)) :: CAuS ! Stokes contribution to CAu [L T-2 ~> m s-2]
-  real, dimension(SZI_(G),SZJB_(G),SZK_(G)) :: CAvS ! Stokes contribution to CAv [L T-2 ~> m s-2]
+  real, dimension(:,:,:), contiguous, pointer :: CAuS ! Stokes contribution to CAu [L T-2 ~> m s-2]
+  real, dimension(:,:,:), contiguous, pointer :: CAvS ! Stokes contribution to CAv [L T-2 ~> m s-2]
   real :: vol_neglect            ! A volume so small that is expected to be
                                  ! lost in roundoff [H L2 ~> m3 or kg].
   real :: area_neglect           ! An area so small that is expected to be
@@ -293,6 +293,15 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   else
     Is_q = G%IscB - 1 ; Ie_q = G%IecB + 1 ; Js_q = G%JscB - 1 ; Je_q = G%JecB + 1
   endif
+
+  call Area_q_a%alloc(lb=[u_a%lb(1),v_a%lb(2)], ub=[u_a%ub(1),v_a%ub(2)])
+  call Area_h_a%alloc(lb=[h_a%lb(1),h_a%lb(2)], ub=[h_a%ub(1),h_a%ub(2)])
+  call RV_a%alloc(lb=[u_a%lb(1),v_a%lb(2),u_a%lb(3)], ub=[u_a%ub(1),v_a%ub(2),u_a%ub(3)])
+  call PV_a%alloc(lb=[u_a%lb(1),v_a%lb(2),u_a%lb(3)], ub=[u_a%ub(1),v_a%ub(2),u_a%ub(3)])
+  call CAuS_a%alloc(lb=[u_a%lb(1),u_a%lb(2),1], ub=[u_a%ub(1),u_a%ub(2),G%ke])
+  call CAvS_a%alloc(lb=[v_a%lb(1),v_a%lb(2),1], ub=[v_a%ub(1),v_a%ub(2),G%ke])
+  call Area_q_a%view(Area_q) ; call Area_h_a%view(Area_h) ; call RV_a%view(RV)
+  call PV_a%view(PV) ; call CAuS_a%view(CAuS) ; call CAvS_a%view(CAvS)
 
   !$omp target enter data map(alloc: Area_h, Area_q)
 
@@ -373,22 +382,10 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
     call bxQ%set(idxS=[G%IscB,G%JscB,k_start], idxE=[G%IecB,G%JecB,k_end])
     call bxQs%set(idxS=[Is_q,Js_q,k_start], idxE=[Ie_q,Je_q,k_end])
 
-    call Area_h_a%alloc(lb=LBOUND(Area_h), ub=UBOUND(Area_h), source=Area_h)
-    call Area_q_a%alloc(lb=LBOUND(Area_q), ub=UBOUND(Area_q), source=Area_q)
-    call RV_a%alloc(lb=LBOUND(RV), ub=UBOUND(RV), source=RV)
-    call PV_a%alloc(lb=LBOUND(PV), ub=UBOUND(PV), source=PV)
-    call CAuS_a%alloc(lb=LBOUND(CAuS), ub=UBOUND(CAuS), source=CAuS)
-    call CAvS_a%alloc(lb=LBOUND(CAvS), ub=UBOUND(CAvS), source=CAvS)
     call CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV%H_subroundoff, CS, &
                      pbv, Waves, bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, &
                      vol_neglect, area_neglect, eps_vel, h_tiny, Fe_m2, rat_lin, RV_a, PV_a, &
                      CAuS_a, CAvS_a)
-    call RV_a%copy2F(RV)
-    call PV_a%copy2F(PV)
-    call CAuS_a%copy2F(CAuS)
-    call CAvS_a%copy2F(CAvS)
-    call Area_h_a%free() ; call Area_q_a%free() ; call RV_a%free()
-    call PV_a%free() ; call CAuS_a%free() ; call CAvS_a%free()
   enddo ! end of tile loop.
   call bxH%free() ; call bxQ%free() ; call bxQs%free()
 
@@ -407,13 +404,10 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   !$omp target exit data map(from: AD%rv_x_v) if (associated(AD%rv_x_v))
   !$omp target exit data map(from: CAuS, CAvS) if (Stokes_VF)
 
-  call RV_a%alloc(lb=LBOUND(RV), ub=UBOUND(RV), source=RV)
-  call PV_a%alloc(lb=LBOUND(PV), ub=UBOUND(PV), source=PV)
-  call CAuS_a%alloc(lb=LBOUND(CAuS), ub=UBOUND(CAuS), source=CAuS)
-  call CAvS_a%alloc(lb=LBOUND(CAvS), ub=UBOUND(CAvS), source=CAvS)
   call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV%ke, CS)
-  call RV_a%free() ; call PV_a%free() ; call CAuS_a%free()
-  call CAvS_a%free()
+
+  call Area_q_a%free() ; call Area_h_a%free() ; call RV_a%free()
+  call PV_a%free() ; call CAuS_a%free() ; call CAvS_a%free()
 end subroutine CorAdCalc_TR
 
 
@@ -471,20 +465,20 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_su
   type(RealArray_t) :: q_a, Ih_q_a, abs_vort_a, h_q_a, qS_a, q2_a, uh_center_a, vh_center_a
   real, dimension(:,:,:), contiguous, pointer :: u, v, h, uh, vh, CAu, CAv, RV, PV, CAuS, CAvS
   real, dimension(:,:), contiguous, pointer :: Area_h, Area_q
-  real, dimension(SZIB_(G),SZJB_(G),bxH%idxS(3):bxH%idxE(3)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: &
     q, &        ! Layer potential vorticity [H-1 T-1 ~> m-1 s-1 or m2 kg-1 s-1].
     qS, &       ! Layer Stokes vorticity [H-1 T-1 ~> m-1 s-1 or m2 kg-1 s-1].
     Ih_q, &     ! The inverse of thickness interpolated to q points [H-1 ~> m-1 or m2 kg-1].
     h_q, &      ! The thickness interpolated to q points [H-1 ~> m-1 or m2 kg-1].
     abs_vort, & ! Absolute vorticity at q-points [T-1 ~> s-1].
     q2          ! Relative vorticity over thickness [H-1 T-1 ~> m-1 s-1 or m2 kg-1 s-1].
-  real, dimension(SZIB_(G),SZJ_(G),bxH%idxS(3):bxH%idxE(3)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: &
     KEx, &      ! The zonal gradient of Kinetic energy per unit mass [L T-2 ~> m s-2],
                 ! KEx = d/dx KE.
     uh_center   ! Transport based on arithmetic mean h at u-points [H L2 T-1 ~> m3 s-1 or kg s-1]
-  real, dimension(SZI_(G),SZJ_(G),bxH%idxS(3):bxH%idxE(3)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: &
     KE          ! Kinetic energy per unit mass [L2 T-2 ~> m2 s-2], KE = (u^2 + v^2)/2.
-  real, dimension(SZI_(G),SZJB_(G),bxH%idxS(3):bxH%idxE(3)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: &
     KEy, &      ! The meridional gradient of Kinetic energy per unit mass [L T-2 ~> m s-2],
                 ! KEy = d/dy KE.
     vh_center   ! Transport based on arithmetic mean h at v-points [H L2 T-1 ~> m3 s-1 or kg s-1]
@@ -494,6 +488,29 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_su
   call CAv_a%view(CAv) ; call Area_h_a%view(Area_h) ; call Area_q_a%view(Area_q)
   call RV_a%view(RV) ; call PV_a%view(PV) ; call CAuS_a%view(CAuS)
   call CAvS_a%view(CAvS)
+
+  call q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                 ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call qS_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                  ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call Ih_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call h_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                   ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call abs_vort_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                        ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call q2_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
+                  ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
+  call KEx_a%alloc(lb=[u_a%lb(1),u_a%lb(2),bxH%idxS(3)], ub=[u_a%ub(1),u_a%ub(2),bxH%idxE(3)])
+  call uh_center_a%alloc(lb=[u_a%lb(1),u_a%lb(2),bxH%idxS(3)], ub=[u_a%ub(1),u_a%ub(2),bxH%idxE(3)])
+  call KE_a%alloc(lb=[Area_h_a%lb(1),Area_h_a%lb(2),bxH%idxS(3)], &
+                  ub=[Area_h_a%ub(1),Area_h_a%ub(2),bxH%idxE(3)])
+  call KEy_a%alloc(lb=[v_a%lb(1),v_a%lb(2),bxH%idxS(3)], ub=[v_a%ub(1),v_a%ub(2),bxH%idxE(3)])
+  call vh_center_a%alloc(lb=[v_a%lb(1),v_a%lb(2),bxH%idxS(3)], ub=[v_a%ub(1),v_a%ub(2),bxH%idxE(3)])
+  call q_a%view(q) ; call qS_a%view(qS) ; call Ih_q_a%view(Ih_q)
+  call h_q_a%view(h_q) ; call abs_vort_a%view(abs_vort) ; call q2_a%view(q2)
+  call KEx_a%view(KEx) ; call uh_center_a%view(uh_center) ; call KE_a%view(KE)
+  call KEy_a%view(KEy) ; call vh_center_a%view(vh_center)
 
   !$omp target enter data map(alloc: abs_vort, q, Ih_q)
   !$omp target enter data map(alloc: h_q) if (use_weno)
@@ -506,80 +523,34 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_su
   !$omp   if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
 
   ! Potential vorticity and the related quantities at q points used by every scheme.
-  call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
-  call Ih_q_a%alloc(lb=LBOUND(Ih_q), ub=UBOUND(Ih_q), source=Ih_q)
-  call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
-  call h_q_a%alloc(lb=LBOUND(h_q), ub=UBOUND(h_q), source=h_q)
-  call qS_a%alloc(lb=LBOUND(qS), ub=UBOUND(qS), source=qS)
-  call q2_a%alloc(lb=LBOUND(q2), ub=UBOUND(q2), source=q2)
-  call uh_center_a%alloc(lb=LBOUND(uh_center), ub=UBOUND(uh_center), source=uh_center)
-  call vh_center_a%alloc(lb=LBOUND(vh_center), ub=UBOUND(vh_center), source=vh_center)
   call CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
                     Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, abs_vort_a, &
                     h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
-  call q_a%copy2F(q)
-  call Ih_q_a%copy2F(Ih_q)
-  call abs_vort_a%copy2F(abs_vort)
-  call h_q_a%copy2F(h_q)
-  call qS_a%copy2F(qS)
-  call q2_a%copy2F(q2)
-  call uh_center_a%copy2F(uh_center)
-  call vh_center_a%copy2F(vh_center)
-  call q_a%free() ; call Ih_q_a%free() ; call abs_vort_a%free()
-  call h_q_a%free() ; call qS_a%free() ; call q2_a%free()
-  call uh_center_a%free() ; call vh_center_a%free()
 
   ! Calculate KE and the gradient of KE
-  call KE_a%alloc(lb=LBOUND(KE), ub=UBOUND(KE), source=KE)
-  call KEx_a%alloc(lb=LBOUND(KEx), ub=UBOUND(KEx), source=KEx)
-  call KEy_a%alloc(lb=LBOUND(KEy), ub=UBOUND(KEy), source=KEy)
   call gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, CS%KE_Scheme, CS%KE_use_limiter)
-  call KE_a%copy2F(KE)
-  call KEx_a%copy2F(KEx)
-  call KEy_a%copy2F(KEy)
-  call KE_a%free() ; call KEx_a%free() ; call KEy_a%free()
   ! TODO: Can KE be removed from this function?
 
   ! Calculate the Coriolis and momentum advection accelerations, CAu and CAv, with the selected
   ! scheme.  On a Cartesian grid, CAu =  q * vh - d(KE)/dx and CAv = - q * uh - d(KE)/dy.
   select case (CS%Coriolis_scheme_CS%Coriolis_Scheme)
   case (SADOURNY75_ENERGY, SADOURNY75_ENSTRO)
-    call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
-    call uh_center_a%alloc(lb=LBOUND(uh_center), ub=UBOUND(uh_center), source=uh_center)
-    call vh_center_a%alloc(lb=LBOUND(vh_center), ub=UBOUND(vh_center), source=vh_center)
     call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, CAu_a, &
                          CAv_a, CS%Coriolis_scheme_CS)
-    call q_a%free() ; call uh_center_a%free() ; call vh_center_a%free()
   case (ARAKAWA_HSU90, ARAKAWA_LAMB81, AL_BLEND)
-    call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
-    call Ih_q_a%alloc(lb=LBOUND(Ih_q), ub=UBOUND(Ih_q), source=Ih_q)
     call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, CAu_a, CAv_a, &
                         CS%wt_lin_blend, CS%Coriolis_scheme_CS)
-    call q_a%free() ; call Ih_q_a%free()
   case (ROBUST_ENSTRO)
-    call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
     call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxH, bxQ, &
                               CAu_a, CAv_a, CS%PV_Adv_Scheme)
-    call abs_vort_a%free()
   case (wenovi7th_PV_ENSTRO, wenovi5th_PV_ENSTRO, wenovi3rd_PV_ENSTRO)
-    call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
-    call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
-    call h_q_a%alloc(lb=LBOUND(h_q), ub=UBOUND(h_q), source=h_q)
     call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxH, bxQ, &
                      CAu_a, CAv_a, CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
-    call q_a%free() ; call abs_vort_a%free() ; call h_q_a%free()
   end select
 
   ! The Stokes-drift diagnostic, bounding, the kinetic energy gradient, and diagnostics.
-  call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
-  call qS_a%alloc(lb=LBOUND(qS), ub=UBOUND(qS), source=qS)
-  call q2_a%alloc(lb=LBOUND(q2), ub=UBOUND(q2), source=q2)
-  call KEx_a%alloc(lb=LBOUND(KEx), ub=UBOUND(KEx), source=KEx)
-  call KEy_a%alloc(lb=LBOUND(KEy), ub=UBOUND(KEy), source=KEy)
   call CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, Stokes_VF, &
                            G, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
-  call abs_vort_a%free() ; call qS_a%free() ; call q2_a%free()
-  call KEx_a%free() ; call KEy_a%free()
 
   !$omp target exit data map(delete: abs_vort, q, Ih_q)
   !$omp target exit data map(delete: h_q) if (use_weno)
@@ -589,6 +560,11 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_su
   !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
   !$omp target exit data map(delete: q2) &
   !$omp     if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
+
+  call q_a%free() ; call qS_a%free() ; call Ih_q_a%free()
+  call h_q_a%free() ; call abs_vort_a%free() ; call q2_a%free()
+  call KEx_a%free() ; call uh_center_a%free() ; call KE_a%free()
+  call KEy_a%free() ; call vh_center_a%free()
 end subroutine CorAdv_tile
 
 
