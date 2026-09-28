@@ -197,8 +197,8 @@ subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Wav
   call CAu_a%alloc(lb=LBOUND(CAu), ub=UBOUND(CAu), source=CAu)
   call CAv_a%alloc(lb=LBOUND(CAv), ub=UBOUND(CAv), source=CAv)
 
-  call CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US%m_to_L, &
-                    US%m_s_to_L_T, CS, pbv, Waves)
+  call CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV%ke, GV%H_subroundoff, &
+                    GV%Angstrom_H, US%m_to_L, US%m_s_to_L_T, CS, pbv, Waves)
 
   call CAu_a%copy2F(CAu)
   call CAv_a%copy2F(CAv)
@@ -211,10 +211,15 @@ end subroutine CorAdCalc
 
 !> The implementation of CorAdCalc (the root of its call tree): sets up the k-invariant fields,
 !! then loops over iteration tiles, calling CorAdv_tile for each one.
-subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, m_to_L, &
-                        m_s_to_L_T, CS, pbv, Waves)
+subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, ke, H_subroundoff, &
+                        Angstrom_H, m_to_L, m_s_to_L_T, CS, pbv, Waves)
   type(ocean_grid_type),                      intent(in)    :: G  !< Ocean grid structure
-  type(verticalGrid_type),                    intent(in)    :: GV !< Vertical grid structure
+  integer, intent(in) :: ke !< The number of layers/levels in the vertical
+  real, intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to a
+                                    !! thickness of Angstrom or larger without changing it at the
+                                    !! bit level [H ~> m or kg m-2].
+  real, intent(in) :: Angstrom_H !< A one-Angstrom thickness in the model thickness units
+                                 !! [H ~> m or kg m-2].
   type(RealArray_t),         intent(in)    :: u_a   !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t),         intent(in)    :: v_a   !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t),         intent(in)    :: h_a   !< Layer thickness [H ~> m or kg m-2]
@@ -275,12 +280,12 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   if (.not.CS%initialized) call MOM_error(FATAL, &
          "MOM_CoriolisAdv: Module must be initialized before it is used.")
 
-  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke
-  nkblock = merge(GV%ke, CS%nkblock, CS%nkblock==0)
-  vol_neglect = GV%H_subroundoff * (1e-4 * m_to_L)**2
+  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = ke
+  nkblock = merge(ke, CS%nkblock, CS%nkblock==0)
+  vol_neglect = H_subroundoff * (1e-4 * m_to_L)**2
   area_neglect = (1e-4 * m_to_L)**2
   eps_vel = 1.0e-10*m_s_to_L_T
-  h_tiny = GV%Angstrom_H  ! Perhaps this should be set to h_neglect instead.
+  h_tiny = Angstrom_H  ! Perhaps this should be set to h_neglect instead.
 
   stencil = CoriolisAdv_stencil(CS)
 
@@ -382,7 +387,7 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
     call bxQ%set(idxS=[G%IscB,G%JscB,k_start], idxE=[G%IecB,G%JecB,k_end])
     call bxQs%set(idxS=[Is_q,Js_q,k_start], idxE=[Ie_q,Je_q,k_end])
 
-    call CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV%H_subroundoff, CS, &
+    call CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_subroundoff, CS, &
                      pbv, Waves, bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, &
                      vol_neglect, area_neglect, eps_vel, h_tiny, Fe_m2, rat_lin, RV_a, PV_a, &
                      CAuS_a, CAvS_a)
@@ -404,7 +409,7 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   !$omp target exit data map(from: AD%rv_x_v) if (associated(AD%rv_x_v))
   !$omp target exit data map(from: CAuS, CAvS) if (Stokes_VF)
 
-  call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV%ke, CS)
+  call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, ke, CS)
 
   call Area_q_a%free() ; call Area_h_a%free() ; call RV_a%free()
   call PV_a%free() ; call CAuS_a%free() ; call CAvS_a%free()
