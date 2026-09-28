@@ -197,7 +197,8 @@ subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Wav
   call CAu_a%alloc(lb=LBOUND(CAu), ub=UBOUND(CAu), source=CAu)
   call CAv_a%alloc(lb=LBOUND(CAv), ub=UBOUND(CAv), source=CAv)
 
-  call CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US, CS, pbv, Waves)
+  call CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US%m_to_L, &
+                    US%m_s_to_L_T, CS, pbv, Waves)
 
   call CAu_a%copy2F(CAu)
   call CAv_a%copy2F(CAv)
@@ -210,8 +211,8 @@ end subroutine CorAdCalc
 
 !> The implementation of CorAdCalc (the root of its call tree): sets up the k-invariant fields,
 !! then loops over iteration tiles, calling CorAdv_tile for each one.
-subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US, CS, pbv, &
-                        Waves)
+subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, m_to_L, &
+                        m_s_to_L_T, CS, pbv, Waves)
   type(ocean_grid_type),                      intent(in)    :: G  !< Ocean grid structure
   type(verticalGrid_type),                    intent(in)    :: GV !< Vertical grid structure
   type(RealArray_t),         intent(in)    :: u_a   !< Zonal velocity [L T-1 ~> m s-1]
@@ -227,7 +228,10 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
                                                     !! and momentum advection [L T-2 ~> m s-2].
   type(ocean_OBC_type),                       pointer       :: OBC !< Open boundary control structure
   type(accel_diag_ptrs),                      intent(inout) :: AD  !< Storage for acceleration diagnostics
-  type(unit_scale_type),                      intent(in)    :: US  !< A dimensional unit scaling type
+  real, intent(in) :: m_to_L !< A constant that translates lengths in meters to the units of
+                             !! horizontal lengths [L m-1 ~> 1]
+  real, intent(in) :: m_s_to_L_T !< Convert lateral velocities from m s-1 to L T-1
+                                 !! [L s T-1 m-1 ~> 1]
   type(CoriolisAdv_CS),                       intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
   type(porous_barrier_type),                  intent(in)    :: pbv !< porous barrier fractional cell metrics
   type(Wave_parameters_CS),         optional, pointer       :: Waves !< An optional pointer to Stokes drift CS
@@ -273,9 +277,9 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke
   nkblock = merge(GV%ke, CS%nkblock, CS%nkblock==0)
-  vol_neglect = GV%H_subroundoff * (1e-4 * US%m_to_L)**2
-  area_neglect = (1e-4 * US%m_to_L)**2
-  eps_vel = 1.0e-10*US%m_s_to_L_T
+  vol_neglect = GV%H_subroundoff * (1e-4 * m_to_L)**2
+  area_neglect = (1e-4 * m_to_L)**2
+  eps_vel = 1.0e-10*m_s_to_L_T
   h_tiny = GV%Angstrom_H  ! Perhaps this should be set to h_neglect instead.
 
   stencil = CoriolisAdv_stencil(CS)
@@ -375,9 +379,10 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
     call PV_a%alloc(lb=LBOUND(PV), ub=UBOUND(PV), source=PV)
     call CAuS_a%alloc(lb=LBOUND(CAuS), ub=UBOUND(CAuS), source=CAuS)
     call CAvS_a%alloc(lb=LBOUND(CAvS), ub=UBOUND(CAvS), source=CAvS)
-    call CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US, CS, pbv, Waves, &
-                     bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, vol_neglect, &
-                     area_neglect, eps_vel, h_tiny, Fe_m2, rat_lin, RV_a, PV_a, CAuS_a, CAvS_a)
+    call CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV%H_subroundoff, CS, &
+                     pbv, Waves, bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, &
+                     vol_neglect, area_neglect, eps_vel, h_tiny, Fe_m2, rat_lin, RV_a, PV_a, &
+                     CAuS_a, CAvS_a)
     call RV_a%copy2F(RV)
     call PV_a%copy2F(PV)
     call CAuS_a%copy2F(CAuS)
@@ -406,7 +411,7 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV,
   call PV_a%alloc(lb=LBOUND(PV), ub=UBOUND(PV), source=PV)
   call CAuS_a%alloc(lb=LBOUND(CAuS), ub=UBOUND(CAuS), source=CAuS)
   call CAvS_a%alloc(lb=LBOUND(CAvS), ub=UBOUND(CAvS), source=CAvS)
-  call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV, CS)
+  call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV%ke, CS)
   call RV_a%free() ; call PV_a%free() ; call CAuS_a%free()
   call CAvS_a%free()
 end subroutine CorAdCalc_TR
@@ -414,12 +419,14 @@ end subroutine CorAdCalc_TR
 
 !> Calculates the Coriolis and momentum advection contributions to the acceleration over one
 !! iteration tile, by calling the setup, the selected scheme and the common terms in turn.
-subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, US, CS, pbv, &
-                       Waves, bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, &
+subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, H_subroundoff, CS, &
+                       pbv, Waves, bxH, bxQ, bxQs, Area_h_a, Area_q_a, Stokes_VF, use_weno, &
                        vol_neglect, area_neglect, eps_vel, h_tiny, Fe_m2, rat_lin, RV_a, PV_a, &
                        CAuS_a, CAvS_a)
   type(ocean_grid_type),                      intent(in)    :: G  !< Ocean grid structure
-  type(verticalGrid_type),                    intent(in)    :: GV !< Vertical grid structure
+  real, intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to a
+                                    !! thickness of Angstrom or larger without changing it at the
+                                    !! bit level [H ~> m or kg m-2].
   type(Box_t),                                intent(in)    :: bxH  !< The h-point iteration box of this
                                                                     !! tile, [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),                                intent(in)    :: bxQ  !< The B-grid-index iteration box of
@@ -439,7 +446,6 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, 
                                                !! and momentum advection [L T-2 ~> m s-2].
   type(ocean_OBC_type),                       pointer       :: OBC !< Open boundary control structure
   type(accel_diag_ptrs),                      intent(inout) :: AD  !< Storage for acceleration diagnostics
-  type(unit_scale_type),                      intent(in)    :: US  !< A dimensional unit scaling type
   type(CoriolisAdv_CS),                       intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
   type(porous_barrier_type),                  intent(in)    :: pbv !< porous barrier fractional cell metrics
   type(Wave_parameters_CS),         optional, pointer       :: Waves !< An optional pointer to Stokes drift CS
@@ -508,7 +514,7 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, 
   call q2_a%alloc(lb=LBOUND(q2), ub=UBOUND(q2), source=q2)
   call uh_center_a%alloc(lb=LBOUND(uh_center), ub=UBOUND(uh_center), source=uh_center)
   call vh_center_a%alloc(lb=LBOUND(vh_center), ub=UBOUND(vh_center), source=vh_center)
-  call CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, GV, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
+  call CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
                     Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, abs_vort_a, &
                     h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
   call q_a%copy2F(q)
@@ -527,8 +533,7 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, 
   call KE_a%alloc(lb=LBOUND(KE), ub=UBOUND(KE), source=KE)
   call KEx_a%alloc(lb=LBOUND(KEx), ub=UBOUND(KEx), source=KEx)
   call KEy_a%alloc(lb=LBOUND(KEy), ub=UBOUND(KEy), source=KEy)
-  call gradKE(u_a, v_a, h_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, GV, US, CS%KE_Scheme, &
-              CS%KE_use_limiter)
+  call gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, CS%KE_Scheme, CS%KE_use_limiter)
   call KE_a%copy2F(KE)
   call KEx_a%copy2F(KEx)
   call KEy_a%copy2F(KEy)
@@ -542,26 +547,26 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, 
     call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
     call uh_center_a%alloc(lb=LBOUND(uh_center), ub=UBOUND(uh_center), source=uh_center)
     call vh_center_a%alloc(lb=LBOUND(vh_center), ub=UBOUND(vh_center), source=vh_center)
-    call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, GV, bxH, bxQ, &
-                         CAu_a, CAv_a, CS%Coriolis_scheme_CS)
+    call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, CAu_a, &
+                         CAv_a, CS%Coriolis_scheme_CS)
     call q_a%free() ; call uh_center_a%free() ; call vh_center_a%free()
   case (ARAKAWA_HSU90, ARAKAWA_LAMB81, AL_BLEND)
     call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
     call Ih_q_a%alloc(lb=LBOUND(Ih_q), ub=UBOUND(Ih_q), source=Ih_q)
-    call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu_a, CAv_a, &
+    call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, CAu_a, CAv_a, &
                         CS%wt_lin_blend, CS%Coriolis_scheme_CS)
     call q_a%free() ; call Ih_q_a%free()
   case (ROBUST_ENSTRO)
     call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
-    call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, GV, bxH, &
-                              bxQ, CAu_a, CAv_a, CS%PV_Adv_Scheme)
+    call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxH, bxQ, &
+                              CAu_a, CAv_a, CS%PV_Adv_Scheme)
     call abs_vort_a%free()
   case (wenovi7th_PV_ENSTRO, wenovi5th_PV_ENSTRO, wenovi3rd_PV_ENSTRO)
     call q_a%alloc(lb=LBOUND(q), ub=UBOUND(q), source=q)
     call abs_vort_a%alloc(lb=LBOUND(abs_vort), ub=UBOUND(abs_vort), source=abs_vort)
     call h_q_a%alloc(lb=LBOUND(h_q), ub=UBOUND(h_q), source=h_q)
-    call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH, bxQ, CAu_a, CAv_a, &
-                     CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
+    call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxH, bxQ, &
+                     CAu_a, CAv_a, CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
     call q_a%free() ; call abs_vort_a%free() ; call h_q_a%free()
   end select
 
@@ -572,7 +577,7 @@ subroutine CorAdv_tile(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, OBC, AD, G, GV, 
   call KEx_a%alloc(lb=LBOUND(KEx), ub=UBOUND(KEx), source=KEx)
   call KEy_a%alloc(lb=LBOUND(KEy), ub=UBOUND(KEy), source=KEy)
   call CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, Stokes_VF, &
-                           G, GV, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+                           G, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
   call abs_vort_a%free() ; call qS_a%free() ; call q2_a%free()
   call KEx_a%free() ; call KEy_a%free()
 
@@ -589,11 +594,10 @@ end subroutine CorAdv_tile
 
 !> Calculates the potential vorticity and the related quantities at q points that every
 !! Coriolis scheme uses, over one iteration tile.
-subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, GV, bxH, bxQ, bxQs, Area_h_a, &
-                        Area_q_a, Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, &
-                        abs_vort_a, h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
+subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
+                        Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, abs_vort_a, &
+                        h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -958,10 +962,9 @@ end subroutine CorAdv_setup
 
 !> Calculates the Coriolis and momentum advection accelerations with the Sadourny (1975)
 !! energy- or enstrophy-conserving schemes (SADOURNY75_ENERGY, SADOURNY75_ENSTRO), over one tile.
-subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, GV, bxH, bxQ, &
+subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, &
                            CAu_a, CAv_a, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -1149,10 +1152,9 @@ end subroutine CorAdv_sadourny
 
 !> Calculates the Coriolis and momentum advection accelerations with the Arakawa & Hsu (1990),
 !! Arakawa & Lamb (1981) or blended (ARAKAWA_LAMB_BLEND) schemes, over one tile.
-subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu_a, CAv_a, &
+subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, CAu_a, CAv_a, &
                           wt_lin_blend, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -1316,10 +1318,9 @@ end subroutine CorAdv_arakawa
 
 !> Calculates the Coriolis and momentum advection accelerations with the pseudo-enstrophy
 !! scheme that is robust to vanishing layers (ROBUST_ENSTRO), over one tile.
-subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, GV, &
-                                bxH, bxQ, CAu_a, CAv_a, PV_Adv_Scheme)
+subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxH, &
+                                bxQ, CAu_a, CAv_a, PV_Adv_Scheme)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -1429,10 +1430,12 @@ end subroutine CorAdv_robust_enstro
 !> Calculates the Coriolis and momentum advection accelerations with the WENO PV-reconstruction
 !! schemes (WENOVI7TH/5TH/3RD_PV_ENSTRO), over one tile.  Near land the reconstruction falls back to
 !! narrower stencils, down to first-order upwind.
-subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH, bxQ, CAu_a, &
-                       CAv_a, weno_velocity_smooth, CS)
+subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxH, bxQ, &
+                       CAu_a, CAv_a, weno_velocity_smooth, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
+  real, intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to a
+                                    !! thickness of Angstrom or larger without changing it at the
+                                    !! bit level [H ~> m or kg m-2].
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -1499,7 +1502,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_seven_h_weight_reconstruction(abs_vort(I,J-4:J+3,k), &
                                        h_q(I,J-4:J+3,k), &
                                        u_q8, &
-                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                       H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (fifth_order == 1) then
@@ -1508,7 +1511,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_five_h_weight_reconstruction(abs_vort(I,J-3:J+2,k), &
                                       h_q(I,J-3:J+2,k), &
                                       u_q6, &
-                                      GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                      H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (third_order == 1) then
@@ -1517,7 +1520,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                       H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
       else ! Upwind first order
         if (v_u>0.) then
@@ -1544,7 +1547,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_five_h_weight_reconstruction(abs_vort(I,J-3:J+2,k), &
                                       h_q(I,J-3:J+2,k), &
                                       u_q6, &
-                                      GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                      H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (third_order == 1) then
@@ -1553,7 +1556,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                       H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       else ! Upwind first order
@@ -1579,7 +1582,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
+                                       H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       else ! Upwind first order
@@ -1616,7 +1619,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_seven_h_weight_reconstruction(abs_vort(I-4:I+3,J,k), &
                                        h_q(I-4:I+3,J,k), &
                                        v_q8, &
-                                       GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                       H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (fifth_order == 1) then
@@ -1625,7 +1628,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_five_h_weight_reconstruction(abs_vort(I-3:I+2,J,k), &
                                       h_q(I-3:I+2,J,k), &
                                       v_q6, &
-                                      GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                      H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (third_order == 1) then
@@ -1634,7 +1637,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                               H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
       else ! Upwind first order!
         if (u_v>0.) then
@@ -1663,7 +1666,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_five_h_weight_reconstruction(abs_vort(I-3:I+2,J,k), &
                                       h_q(I-3:I+2,J,k), &
                                       v_q6, &
-                                      GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                      H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (third_order == 1) then
@@ -1672,7 +1675,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                               H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       else
@@ -1701,7 +1704,7 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, GV, bxH,
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
+                                               H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       else
@@ -1722,9 +1725,8 @@ end subroutine CorAdv_weno
 !! the Stokes-drift diagnostic, the optional bounding of the Coriolis terms and the kinetic energy
 !! gradient, and the diagnostics of the kinetic energy gradient and relative-vorticity terms.
 subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
-                               Stokes_VF, G, GV, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+                               Stokes_VF, G, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
@@ -1893,9 +1895,9 @@ end subroutine CorAdv_common_terms
 
 !> Offers the Coriolis-related derived quantities for averaging, once the accelerations over
 !! every tile have been calculated.
-subroutine CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV, CS)
+subroutine CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, ke, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
+  integer, intent(in) :: ke !< The number of layers/levels in the vertical
   type(RealArray_t), intent(in)    :: RV_a   !< Diagnostic relative vorticity [T-1 ~> s-1]
   type(RealArray_t), intent(in)    :: PV_a   !< Diagnostic potential vorticity
                                              !! [H-1 T-1 ~> m-1 s-1 or m2 kg-1 s-1]
@@ -1912,7 +1914,7 @@ subroutine CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD
   call RV_a%view(RV) ; call PV_a%view(PV) ; call CAuS_a%view(CAuS)
   call CAvS_a%view(CAvS)
 
-  nz = GV%ke
+  nz = ke
 
   ! Here the various Coriolis-related derived quantities are offered for averaging.
   if (query_averaging_enabled(CS%diag)) then
@@ -1956,30 +1958,26 @@ end subroutine CorAdv_finalize_diagnostics
 
 
 !> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile.
-subroutine gradKE(u_a, v_a, h_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, GV, US, KE_Scheme, &
-                  KE_use_limiter)
+subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, KE_Scheme, KE_use_limiter)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
-  type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(Box_t),                                intent(in)  :: bxH !< The h-point iteration box of this
                                                                  !! tile, [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),                                intent(in)  :: bxQ !< The B-grid-index iteration box of
                                                                  !! this tile, [IscB:IecB, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a   !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a   !< Meridional velocity [L T-1 ~> m s-1]
-  type(RealArray_t), intent(in)    :: h_a   !< Layer thickness [H ~> m or kg m-2]
   type(RealArray_t), intent(inout) :: KE_a  !< Kinetic energy per unit mass [L2 T-2 ~> m2 s-2]
   type(RealArray_t), intent(inout) :: KEx_a !< Zonal acceleration due to kinetic
                                             !! energy gradient [L T-2 ~> m s-2]
   type(RealArray_t), intent(inout) :: KEy_a !< Meridional acceleration due to kinetic
                                             !! energy gradient [L T-2 ~> m s-2]
-  type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
   integer,                                    intent(in)  :: KE_Scheme !< Selects the discretization
                                                    !! for the kinetic energy: KE_ARAKAWA,
                                                    !! KE_SIMPLE_GUDONOV, KE_GUDONOV or KE_UP3
   logical,                                    intent(in)  :: KE_use_limiter !< If true, use the
                                                    !! Koren limiter for the KE_UP3 scheme
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: u, v, h, KE, KEx, KEy
+  real, dimension(:,:,:), contiguous, pointer :: u, v, KE, KEx, KEy
   real :: um, up, vm, vp         ! Temporary variables [L T-1 ~> m s-1].
   real :: um2, up2, vm2, vp2     ! Temporary variables [L2 T-2 ~> m2 s-2].
   real :: um2a, up2a, vm2a, vp2a ! Temporary variables [L4 T-2 ~> m4 s-2].
@@ -1987,7 +1985,7 @@ subroutine gradKE(u_a, v_a, h_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, GV, US, KE_Sch
   integer :: i, j, k, ksc, kec, is, ie, js, je, Isq, Ieq, Jsq, Jeq
   real, parameter     :: C1_12 = 1.0/12.0   ! The ratio of 1/12 [nondim]
 
-  call u_a%view(u) ; call v_a%view(v) ; call h_a%view(h)
+  call u_a%view(u) ; call v_a%view(v)
   call KE_a%view(KE) ; call KEx_a%view(KEx) ; call KEy_a%view(KEy)
 
   is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
