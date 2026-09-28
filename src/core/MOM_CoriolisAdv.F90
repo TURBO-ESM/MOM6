@@ -27,6 +27,7 @@ use MOM_variables,     only : accel_diag_ptrs, porous_barrier_type
 use MOM_verticalGrid,  only : verticalGrid_type
 use MOM_wave_interface, only : wave_parameters_CS
 use box_mod,           only : Box_t
+use iso_c_binding,     only : c_int, c_bool
 
 implicit none ; private
 
@@ -34,9 +35,8 @@ public CorAdCalc, CoriolisAdv_init, CoriolisAdv_end, CoriolisAdv_stencil
 
 #include <MOM_memory.h>
 
-!> Control structure for mom_coriolisadv
-type, public :: CoriolisAdv_CS ; private
-  logical :: initialized = .false. !< True if this control structure has been initialized.
+!> Options selecting the discretization of the Coriolis terms.
+type, public :: Coriolis_scheme_CS
   integer :: Coriolis_Scheme !< Selects the discretization for the Coriolis terms.
                              !! Valid values are:
                              !! - SADOURNY75_ENERGY - Sadourny, 1975
@@ -50,6 +50,25 @@ type, public :: CoriolisAdv_CS ; private
                              !! - WENOVI7TH_PV_ENSTRO    - 7th-order WENO scheme for PV reconstruction
                              !! The default, SADOURNY75_ENERGY, is the safest choice then the
                              !! deformation radius is poorly resolved.
+  logical :: Coriolis_En_Dis !< If CORIOLIS_EN_DIS is defined, two estimates of
+                             !! the thickness fluxes are used to estimate the
+                             !! Coriolis term, and the one that dissipates energy
+                             !! relative to the other one is used.  This is only
+                             !! available at present if Coriolis scheme is
+                             !! SADOURNY75_ENERGY.
+end type Coriolis_scheme_CS
+
+!> bind(C) mirror of Coriolis_scheme_CS, field-for-field, same order.
+type, bind(C) :: Coriolis_scheme_CS_C
+  integer(c_int)  :: Coriolis_Scheme !< Selects the discretization for the Coriolis terms.
+  logical(c_bool) :: Coriolis_En_Dis !< If true, use the energy-dissipating biased Coriolis scheme.
+end type Coriolis_scheme_CS_C
+
+!> Control structure for mom_coriolisadv
+type, public :: CoriolisAdv_CS ; private
+  logical :: initialized = .false. !< True if this control structure has been initialized.
+  type(Coriolis_scheme_CS) :: Coriolis_scheme_CS !< Options selecting the discretization of the
+                             !! Coriolis terms.
   integer :: KE_Scheme       !< KE_SCHEME selects the discretization for
                              !! the kinetic energy. Valid values are:
                              !!  KE_ARAKAWA, KE_SIMPLE_GUDONOV, KE_GUDONOV
@@ -80,12 +99,6 @@ type, public :: CoriolisAdv_CS ; private
                              !! points.  This option would have no effect on the
                              !! SADOURNY75_ENERGY scheme if it were possible to
                              !! use centered difference thickness fluxes.
-  logical :: Coriolis_En_Dis !< If CORIOLIS_EN_DIS is defined, two estimates of
-                             !! the thickness fluxes are used to estimate the
-                             !! Coriolis term, and the one that dissipates energy
-                             !! relative to the other one is used.  This is only
-                             !! available at present if Coriolis scheme is
-                             !! SADOURNY75_ENERGY.
   logical :: weno_velocity_smooth !< If true, use velocity to compute the smoothness indicator for WENO
   type(time_type), pointer :: Time !< A pointer to the ocean model's clock.
   type(diag_ctrl), pointer :: diag !< A structure that is used to regulate the timing of diagnostic output.
@@ -142,6 +155,14 @@ character*(20), parameter :: PV_ADV_UPWIND1_STRING = "PV_ADV_UPWIND1"
 !>@}
 
 contains
+
+!> Converts a Coriolis_scheme_CS to its bind(C) mirror.
+function Coriolis_scheme_CS_to_c(opts) result(cdesc)
+  type(Coriolis_scheme_CS), intent(in) :: opts !< Options to convert
+  type(Coriolis_scheme_CS_C) :: cdesc          !< bind(C) mirror of opts
+  cdesc%Coriolis_Scheme = opts%Coriolis_Scheme
+  cdesc%Coriolis_En_Dis = opts%Coriolis_En_Dis
+end function Coriolis_scheme_CS_to_c
 
 !> Calculates the Coriolis and momentum advection contributions to the acceleration.
 subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Waves)
@@ -238,9 +259,9 @@ subroutine CorAdCalc_TR(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, 
 
   stencil = CoriolisAdv_stencil(CS)
 
-  use_weno = CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO &
-      .or. CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO &
-      .or. CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO
+  use_weno = CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO &
+      .or. CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO &
+      .or. CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO
 
   if (use_weno) then
     Is_q = is - stencil ; Ie_q = ie + stencil - 1 ; Js_q = js - stencil ; Je_q = je + stencil - 1
@@ -304,11 +325,11 @@ subroutine CorAdCalc_TR(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, 
 
   ! TODO: Do this outside of the function
   !$omp target enter data map(to: pbv, pbv%por_face_areaU, pbv%por_face_areaV) &
-  !$omp   if (CS%Coriolis_En_Dis)
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
 
   ! Hoist AL_BLEND k-independent scalars out of the tile loop.
   Fe_m2 = 0.0 ; rat_lin = 0.0
-  if (CS%Coriolis_Scheme == AL_BLEND) then
+  if (CS%Coriolis_scheme_CS%Coriolis_Scheme == AL_BLEND) then
     Fe_m2 = CS%F_eff_max_blend - 2.0
     rat_lin = 1.5 * Fe_m2 / max(CS%wt_lin_blend, 1.0e-16)
     if (CS%F_eff_max_blend <= 2.0) then ; Fe_m2 = -1. ; rat_lin = -1.0 ; endif
@@ -334,7 +355,7 @@ subroutine CorAdCalc_TR(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, 
 
   ! TODO: Move outside function
   !$omp target exit data map(delete: pbv, pbv%por_face_areaU, pbv%por_face_areaV) &
-  !$omp   if (CS%Coriolis_En_Dis)
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
 
   ! Diagnostics
   !$omp target exit data map(from: RV) if (CS%id_RV > 0)
@@ -421,7 +442,8 @@ subroutine CorAdv_tile(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, W
   !$omp target enter data map(alloc: KE, KEx, KEy)
   ! TODO: These Stokes_VF fields seem associated with diagnostics
   !$omp target enter data map(alloc: qS) if (Stokes_VF)
-  !$omp target enter data map(alloc: uh_center, vh_center) if (CS%Coriolis_En_Dis)
+  !$omp target enter data map(alloc: uh_center, vh_center) &
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
   !$omp target enter data map(alloc: q2) &
   !$omp   if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
 
@@ -431,20 +453,24 @@ subroutine CorAdv_tile(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, W
                     uh_center, vh_center, RV, PV, CS)
 
   ! Calculate KE and the gradient of KE
-  call gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
+  call gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS%KE_Scheme, CS%KE_use_limiter)
   ! TODO: Can KE be removed from this function?
 
   ! Calculate the Coriolis and momentum advection accelerations, CAu and CAv, with the selected
   ! scheme.  On a Cartesian grid, CAu =  q * vh - d(KE)/dx and CAv = - q * uh - d(KE)/dy.
-  select case (CS%Coriolis_Scheme)
+  select case (CS%Coriolis_scheme_CS%Coriolis_Scheme)
   case (SADOURNY75_ENERGY, SADOURNY75_ENSTRO)
-    call CorAdv_sadourny(u, v, uh, vh, q, uh_center, vh_center, G, GV, bxH, bxQ, CAu, CAv, CS)
+    call CorAdv_sadourny(u, v, uh, vh, q, uh_center, vh_center, G, GV, bxH, bxQ, CAu, CAv, &
+                         CS%Coriolis_scheme_CS)
   case (ARAKAWA_HSU90, ARAKAWA_LAMB81, AL_BLEND)
-    call CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu, CAv, CS)
+    call CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu, CAv, &
+                        CS%wt_lin_blend, CS%Coriolis_scheme_CS)
   case (ROBUST_ENSTRO)
-    call CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, GV, bxH, bxQ, CAu, CAv, CS)
+    call CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, GV, bxH, bxQ, &
+                              CAu, CAv, CS%PV_Adv_Scheme)
   case (wenovi7th_PV_ENSTRO, wenovi5th_PV_ENSTRO, wenovi3rd_PV_ENSTRO)
-    call CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv, CS)
+    call CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv, &
+                     CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
   end select
 
   ! The Stokes-drift diagnostic, bounding, the kinetic energy gradient, and diagnostics.
@@ -455,7 +481,8 @@ subroutine CorAdv_tile(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, W
   !$omp target exit data map(delete: h_q) if (use_weno)
   !$omp target exit data map(delete: KE, KEx, KEy)
   !$omp target exit data map(delete: qS) if (Stokes_VF)
-  !$omp target exit data map(delete: uh_center, vh_center) if (CS%Coriolis_En_Dis)
+  !$omp target exit data map(delete: uh_center, vh_center) &
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
   !$omp target exit data map(delete: q2) &
   !$omp     if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
 end subroutine CorAdv_tile
@@ -582,7 +609,7 @@ subroutine CorAdv_setup(u, v, h, OBC, AD, pbv, Waves, G, GV, bxH, bxQ, bxQs, Are
     hArea_u(I,j,k) = 0.5*((Area_h(i,j) * h(i,j,k)) + (Area_h(i+1,j) * h(i+1,j,k)))
   enddo
 
-  if (CS%Coriolis_En_Dis) then
+  if (CS%Coriolis_scheme_CS%Coriolis_En_Dis) then
     do concurrent (k=ksc:kec, J=Jsq:Jeq+1, I=is-1:ie)
       uh_center(I,j,k) = 0.5 * ((G%dy_Cu(I,j)*pbv%por_face_areaU(I,j,k)) * u(I,j,k)) * (h(i,j,k) + h(i+1,j,k))
     enddo
@@ -643,7 +670,7 @@ subroutine CorAdv_setup(u, v, h, OBC, AD, pbv, Waves, G, GV, bxH, bxQ, bxQs, Are
             endif
           enddo
 
-          if (CS%Coriolis_En_Dis) then
+          if (CS%Coriolis_scheme_CS%Coriolis_En_Dis) then
             do i=max(Isq,OBC%segment(n)%HI%isd), min(Ieq+1,OBC%segment(n)%HI%ied)
               if (OBC%segment(n)%direction == OBC_DIRECTION_N) then
                 vh_center(i,J,k) = (G%dx_Cv(i,J)*pbv%por_face_areaV(i,J,k)) * v(i,J,k) * h(i,j,k)
@@ -689,7 +716,7 @@ subroutine CorAdv_setup(u, v, h, OBC, AD, pbv, Waves, G, GV, bxH, bxQ, bxQs, Are
             endif
           enddo
 
-          if (CS%Coriolis_En_Dis) then
+          if (CS%Coriolis_scheme_CS%Coriolis_En_Dis) then
             do j=max(Jsq,OBC%segment(n)%HI%jsd), min(Jeq+1,OBC%segment(n)%HI%jed)
               if (OBC%segment(n)%direction == OBC_DIRECTION_E) then
                 uh_center(I,j,k) = (G%dy_Cu(I,j)*pbv%por_face_areaU(I,j,k)) * u(I,j,k) * h(i,j,k)
@@ -849,7 +876,7 @@ subroutine CorAdv_sadourny(u, v, uh, vh, q, uh_center, vh_center, G, GV, bxH, bx
                                                          !! and momentum advection [L T-2 ~> m s-2].
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(inout) :: CAv !< Meridional acceleration due to Coriolis
                                                          !! and momentum advection [L T-2 ~> m s-2].
-  type(CoriolisAdv_CS),    intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
+  type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
   real, dimension(SZI_(G),SZJ_(G),bxH%idxS(3):bxH%idxE(3)) :: &
@@ -1009,7 +1036,8 @@ end subroutine CorAdv_sadourny
 
 !> Calculates the Coriolis and momentum advection accelerations with the Arakawa & Hsu (1990),
 !! Arakawa & Lamb (1981) or blended (ARAKAWA_LAMB_BLEND) schemes, over one tile.
-subroutine CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu, CAv, CS)
+subroutine CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu, CAv, &
+                          wt_lin_blend, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
@@ -1031,7 +1059,10 @@ subroutine CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu,
                                                          !! and momentum advection [L T-2 ~> m s-2].
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(inout) :: CAv !< Meridional acceleration due to Coriolis
                                                          !! and momentum advection [L T-2 ~> m s-2].
-  type(CoriolisAdv_CS),    intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
+  real,                    intent(in)    :: wt_lin_blend !< A weighting value beyond which the
+                                          !! blending between Sadourny and Arakawa & Hsu goes
+                                          !! linearly to 0 [nondim].
+  type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
   real, dimension(SZIB_(G),SZJ_(G),bxH%idxS(3):bxH%idxE(3)) :: &
@@ -1106,7 +1137,7 @@ subroutine CorAdv_arakawa(uh, vh, q, Ih_q, Fe_m2, rat_lin, G, GV, bxH, bxQ, CAu,
       elseif (rat_m1 <= rat_lin) then
         Sad_wt = 1.0 - (1.5*Fe_m2) / rat_m1
       elseif (rat_m1 < 2.0*rat_lin) then
-        Sad_wt = 1.0 - (CS%wt_lin_blend / rat_lin) * (rat_m1 - 2.0*rat_lin)
+        Sad_wt = 1.0 - (wt_lin_blend / rat_lin) * (rat_m1 - 2.0*rat_lin)
       else ; Sad_wt = 1.0 ; endif
 
       a(I-1,j,k) = Sad_wt * 0.25 * q(I-1,J,k) + (1.0 - Sad_wt) * &
@@ -1170,7 +1201,7 @@ end subroutine CorAdv_arakawa
 !> Calculates the Coriolis and momentum advection accelerations with the pseudo-enstrophy
 !! scheme that is robust to vanishing layers (ROBUST_ENSTRO), over one tile.
 subroutine CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, GV, bxH, bxQ, CAu, &
-                                CAv, CS)
+                                CAv, PV_Adv_Scheme)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
@@ -1192,7 +1223,8 @@ subroutine CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, G
                                                          !! and momentum advection [L T-2 ~> m s-2].
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(inout) :: CAv !< Meridional acceleration due to Coriolis
                                                          !! and momentum advection [L T-2 ~> m s-2].
-  type(CoriolisAdv_CS),    intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
+  integer,                 intent(in)    :: PV_Adv_Scheme !< Selects the discretization for PV
+                                          !! advection: PV_ADV_CENTERED or PV_ADV_UPWIND1
 
   ! Local variables
   real :: Heff1, Heff2  ! Temporary effective H at U or V points [H ~> m or kg m-2].
@@ -1225,11 +1257,11 @@ subroutine CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, G
       Heff4 = abs(vh(i+1,J-1,k) * G%IdxCv(i+1,J-1)) / (eps_vel+abs(v(i+1,J-1,k)))
       Heff4 = max(Heff4, min(h(i+1,j-1,k),h(i+1,j,k)))
       Heff4 = min(Heff4, max(h(i+1,j-1,k),h(i+1,j,k)))
-      if (CS%PV_Adv_Scheme == PV_ADV_CENTERED) then
+      if (PV_Adv_Scheme == PV_ADV_CENTERED) then
         CAu(I,j,k) = 0.5*(abs_vort(I,J,k)+abs_vort(I,J-1,k)) * &
                      ((vh(i,J,k) + vh(i+1,J-1,k)) + (vh(i,J-1,k) + vh(i+1,J,k)) ) /  &
                      (h_tiny + ((Heff1+Heff4) + (Heff2+Heff3)) ) * G%IdxCu(I,j)
-      elseif (CS%PV_Adv_Scheme == PV_ADV_UPWIND1) then
+      elseif (PV_Adv_Scheme == PV_ADV_UPWIND1) then
         VHeff = ((vh(i,J,k) + vh(i+1,J-1,k)) + (vh(i,J-1,k) + vh(i+1,J,k)) )
         QVHeff = 0.5*( ((abs_vort(I,J,k)+abs_vort(I,J-1,k))*VHeff) &
                      - ((abs_vort(I,J,k)-abs_vort(I,J-1,k))*abs(VHeff)) )
@@ -1257,12 +1289,12 @@ subroutine CorAdv_robust_enstro(u, v, h, uh, vh, abs_vort, eps_vel, h_tiny, G, G
       Heff4 = abs(uh(I-1,j+1,k) * G%IdyCu(I-1,j+1)) / (eps_vel+abs(u(I-1,j+1,k)))
       Heff4 = max(Heff4, min(h(i-1,j+1,k),h(i,j+1,k)))
       Heff4 = min(Heff4, max(h(i-1,j+1,k),h(i,j+1,k)))
-      if (CS%PV_Adv_Scheme == PV_ADV_CENTERED) then
+      if (PV_Adv_Scheme == PV_ADV_CENTERED) then
         CAv(i,J,k) = - 0.5*(abs_vort(I,J,k)+abs_vort(I-1,J,k)) * &
                        ((uh(I  ,j  ,k)+uh(I-1,j+1,k)) +      &
                         (uh(I-1,j  ,k)+uh(I  ,j+1,k)) ) /    &
                     (h_tiny + ((Heff1+Heff4) +(Heff2+Heff3)) ) * G%IdyCv(i,J)
-      elseif (CS%PV_Adv_Scheme == PV_ADV_UPWIND1) then
+      elseif (PV_Adv_Scheme == PV_ADV_UPWIND1) then
         UHeff = ((uh(I  ,j  ,k)+uh(I-1,j+1,k)) +      &
                  (uh(I-1,j  ,k)+uh(I  ,j+1,k)) )
         QUHeff = 0.5*( ((abs_vort(I,J,k)+abs_vort(I-1,J,k))*UHeff) &
@@ -1277,7 +1309,8 @@ end subroutine CorAdv_robust_enstro
 !> Calculates the Coriolis and momentum advection accelerations with the WENO PV-reconstruction
 !! schemes (WENOVI7TH/5TH/3RD_PV_ENSTRO), over one tile.  Near land the reconstruction falls back to
 !! narrower stencils, down to first-order upwind.
-subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv, CS)
+subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv, &
+                       weno_velocity_smooth, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(verticalGrid_type), intent(in)    :: GV  !< Vertical grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
@@ -1300,7 +1333,9 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
                                                          !! and momentum advection [L T-2 ~> m s-2].
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(inout) :: CAv !< Meridional acceleration due to Coriolis
                                                          !! and momentum advection [L T-2 ~> m s-2].
-  type(CoriolisAdv_CS),    intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
+  logical,                 intent(in)    :: weno_velocity_smooth !< If true, use velocity to
+                                          !! compute the smoothness indicator for WENO
+  type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
   real :: u_v, v_u      ! u_v is the u velocity at v point, v_u is the v velocity at u point [L T-1 ~> m s-1]
@@ -1340,7 +1375,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_seven_h_weight_reconstruction(abs_vort(I,J-4:J+3,k), &
                                        h_q(I,J-4:J+3,k), &
                                        u_q8, &
-                                       GV%H_subroundoff, v_u, q_u, cs%weno_velocity_smooth)
+                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (fifth_order == 1) then
@@ -1349,7 +1384,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_five_h_weight_reconstruction(abs_vort(I,J-3:J+2,k), &
                                       h_q(I,J-3:J+2,k), &
                                       u_q6, &
-                                      GV%H_subroundoff, v_u, q_u, CS%weno_velocity_smooth)
+                                      GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (third_order == 1) then
@@ -1358,7 +1393,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, CS%weno_velocity_smooth)
+                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
       else ! Upwind first order
         if (v_u>0.) then
@@ -1385,7 +1420,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_five_h_weight_reconstruction(abs_vort(I,J-3:J+2,k), &
                                       h_q(I,J-3:J+2,k), &
                                       u_q6, &
-                                      GV%H_subroundoff, v_u, q_u, CS%weno_velocity_smooth)
+                                      GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       elseif (third_order == 1) then
@@ -1394,7 +1429,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, CS%weno_velocity_smooth)
+                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       else ! Upwind first order
@@ -1420,7 +1455,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I,J-2:J+1,k), &
                                        h_q(I,J-2:J+1,k), &
                                        u_q4, &
-                                       GV%H_subroundoff, v_u, q_u, CS%weno_velocity_smooth)
+                                       GV%H_subroundoff, v_u, q_u, weno_velocity_smooth)
         CAu(I,j,k) = (q_u * v_u)
 
       else ! Upwind first order
@@ -1457,7 +1492,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_seven_h_weight_reconstruction(abs_vort(I-4:I+3,J,k), &
                                        h_q(I-4:I+3,J,k), &
                                        v_q8, &
-                                       GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                       GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (fifth_order == 1) then
@@ -1466,7 +1501,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_five_h_weight_reconstruction(abs_vort(I-3:I+2,J,k), &
                                       h_q(I-3:I+2,J,k), &
                                       v_q6, &
-                                      GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                      GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (third_order == 1) then
@@ -1475,7 +1510,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
       else ! Upwind first order!
         if (u_v>0.) then
@@ -1504,7 +1539,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_five_h_weight_reconstruction(abs_vort(I-3:I+2,J,k), &
                                       h_q(I-3:I+2,J,k), &
                                       v_q6, &
-                                      GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                      GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       elseif (third_order == 1) then
@@ -1513,7 +1548,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       else
@@ -1542,7 +1577,7 @@ subroutine CorAdv_weno(u, v, uh, vh, q, abs_vort, h_q, G, GV, bxH, bxQ, CAu, CAv
         call weno_three_h_weight_reconstruction(abs_vort(I-2:I+1,J,k), &
                                                h_q(I-2:I+1,J,k), &
                                                v_q4, &
-                                               GV%H_subroundoff, u_v, q_v, CS%weno_velocity_smooth)
+                                               GV%H_subroundoff, u_v, q_v, weno_velocity_smooth)
         CAv(i,J,k) = - (q_v * u_v)
 
       else
@@ -1685,7 +1720,7 @@ subroutine CorAdv_common_terms(u, v, uh, vh, abs_vort, qS, q2, KEx, KEy, Stokes_
 
   if (associated(AD%rv_x_u) .or. associated(AD%rv_x_v)) then
     ! Calculate the Coriolis-like acceleration due to relative vorticity.
-    if (CS%Coriolis_Scheme == SADOURNY75_ENERGY) then
+    if (CS%Coriolis_scheme_CS%Coriolis_Scheme == SADOURNY75_ENERGY) then
       if (associated(AD%rv_x_u)) then
         do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
           AD%rv_x_u(i,J,k) = - 0.25* &
@@ -1787,7 +1822,7 @@ end subroutine CorAdv_finalize_diagnostics
 
 
 !> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile.
-subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
+subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, KE_Scheme, KE_use_limiter)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(Box_t),                                intent(in)  :: bxH !< The h-point iteration box of this
@@ -1806,7 +1841,11 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
                                               intent(out) :: KEy !< Meridional acceleration due to kinetic
                                                                  !! energy gradient [L T-2 ~> m s-2]
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  type(CoriolisAdv_CS),                       intent(in)  :: CS  !< Control structure for MOM_CoriolisAdv
+  integer,                                    intent(in)  :: KE_Scheme !< Selects the discretization
+                                                   !! for the kinetic energy: KE_ARAKAWA,
+                                                   !! KE_SIMPLE_GUDONOV, KE_GUDONOV or KE_UP3
+  logical,                                    intent(in)  :: KE_use_limiter !< If true, use the
+                                                   !! Koren limiter for the KE_UP3 scheme
   ! Local variables
   real :: um, up, vm, vp         ! Temporary variables [L T-1 ~> m s-1].
   real :: um2, up2, vm2, vp2     ! Temporary variables [L2 T-2 ~> m2 s-2].
@@ -1820,7 +1859,7 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
 
   ! Calculate KE (Kinetic energy for use in the -grad(KE) acceleration term).
-  if (CS%KE_Scheme == KE_ARAKAWA) then
+  if (KE_Scheme == KE_ARAKAWA) then
     ! The following calculation of Kinetic energy includes the metric terms
     ! identified in Arakawa & Lamb 1982 as important for KE conservation.  It
     ! also includes the possibility of partially-blocked tracer cell faces.
@@ -1830,7 +1869,7 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
                      ( (G%areaCv(i, J )*(v(i, J ,k)*v(i, J ,k))) + &
                        (G%areaCv(i,J-1)*(v(i,J-1,k)*v(i,J-1,k))) ) )*0.25*G%IareaT(i,j)
     enddo
-  elseif (CS%KE_Scheme == KE_SIMPLE_GUDONOV) then
+  elseif (KE_Scheme == KE_SIMPLE_GUDONOV) then
     ! The following discretization of KE is based on the one-dimensional Gudonov
     ! scheme which does not take into account any geometric factors
     do concurrent (k=ksc:kec, j=Jsq:Jeq+1, i=Isq:Ieq+1) &
@@ -1841,7 +1880,7 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
       vm = 0.5*( v(i, J ,k) - ABS( v(i, J ,k) ) ) ; vm2 = vm*vm
       KE(i,j,k) = ( max(up2,um2) + max(vp2,vm2) ) *0.5
     enddo
-  elseif (CS%KE_Scheme == KE_GUDONOV) then
+  elseif (KE_Scheme == KE_GUDONOV) then
     ! The following discretization of KE is based on the one-dimensional Gudonov
     ! scheme but has been adapted to take horizontal grid factors into account
     do concurrent (k=ksc:kec, j=Jsq:Jeq+1, i=Isq:Ieq+1) &
@@ -1852,11 +1891,11 @@ subroutine gradKE(u, v, h, KE, KEx, KEy, bxH, bxQ, G, GV, US, CS)
       vm = 0.5*( v(i, J ,k) - ABS( v(i, J ,k) ) ) ; vm2a = vm*vm*G%areaCv(i, J )
       KE(i,j,k) = ( max(um2a,up2a) + max(vm2a,vp2a) )*0.5*G%IareaT(i,j)
     enddo
-  elseif (CS%KE_Scheme == KE_UP3) then
+  elseif (KE_Scheme == KE_UP3) then
     ! The following discretization of KE is based on the one-dimensional third-order
     ! upwind scheme which does not take horizontal grid factors into account
 
-    if (CS%KE_use_limiter) then
+    if (KE_use_limiter) then
       do concurrent (k=ksc:kec, j=Jsq:Jeq+1, i=Isq:Ieq+1) &
           DO_LOCALITY(local(up, um, vp, vm, third_order_u, third_order_v))
         ! compute the masking to make sure that inland values are not used
@@ -2435,8 +2474,8 @@ function CoriolisAdv_stencil(CS) result(stencil)
   integer :: stencil  !< The halo stencil size for the Coriolis advection scheme
 
   stencil = 2
-  if (CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) stencil = 4
-  if (CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) stencil = 3
+  if (CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) stencil = 4
+  if (CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) stencil = 3
 
 end function CoriolisAdv_stencil
 
@@ -2486,7 +2525,7 @@ subroutine CoriolisAdv_init(Time, G, GV, US, param_file, diag, AD, CS)
                  "is strongly encouraged, and no slip BCs are not used with "//&
                  "the biharmonic viscosity.", default=.false.)
 
-  call get_param(param_file, mdl, "CORIOLIS_EN_DIS", CS%Coriolis_En_Dis, &
+  call get_param(param_file, mdl, "CORIOLIS_EN_DIS", CS%Coriolis_scheme_CS%Coriolis_En_Dis, &
                  "If true, two estimates of the thickness fluxes are used "//&
                  "to estimate the Coriolis term, and the one that "//&
                  "dissipates energy relative to the other one is used.", &
@@ -2510,33 +2549,33 @@ subroutine CoriolisAdv_init(Time, G, GV, US, param_file, diag, AD, CS)
   tmpstr = uppercase(tmpstr)
   select case (tmpstr)
     case (SADOURNY75_ENERGY_STRING)
-      CS%Coriolis_Scheme = SADOURNY75_ENERGY
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = SADOURNY75_ENERGY
     case (ARAKAWA_HSU_STRING)
-      CS%Coriolis_Scheme = ARAKAWA_HSU90
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = ARAKAWA_HSU90
     case (SADOURNY75_ENSTRO_STRING)
-      CS%Coriolis_Scheme = SADOURNY75_ENSTRO
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = SADOURNY75_ENSTRO
     case (ARAKAWA_LAMB_STRING)
-      CS%Coriolis_Scheme = ARAKAWA_LAMB81
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = ARAKAWA_LAMB81
     case (AL_BLEND_STRING)
-      CS%Coriolis_Scheme = AL_BLEND
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = AL_BLEND
     case (ROBUST_ENSTRO_STRING)
-      CS%Coriolis_Scheme = ROBUST_ENSTRO
-      CS%Coriolis_En_Dis = .false.
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = ROBUST_ENSTRO
+      CS%Coriolis_scheme_CS%Coriolis_En_Dis = .false.
     case (WENOVI7TH_PV_ENSTRO_STRING)
-      CS%Coriolis_Scheme = wenovi7th_PV_ENSTRO
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = wenovi7th_PV_ENSTRO
     case (WENOVI5TH_PV_ENSTRO_STRING)
-      CS%Coriolis_Scheme = wenovi5th_PV_ENSTRO
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = wenovi5th_PV_ENSTRO
     case (WENOVI3RD_PV_ENSTRO_STRING)
-      CS%Coriolis_Scheme = wenovi3rd_PV_ENSTRO
+      CS%Coriolis_scheme_CS%Coriolis_Scheme = wenovi3rd_PV_ENSTRO
     case default
       call MOM_mesg('CoriolisAdv_init: Coriolis_Scheme ="'//trim(tmpstr)//'"', 0)
       call MOM_error(FATAL, "CoriolisAdv_init: Unrecognized setting "// &
             "#define CORIOLIS_SCHEME "//trim(tmpstr)//" found in input file.")
   end select
 
-  use_weno = CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO &
-      .or. CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO &
-      .or. CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO
+  use_weno = CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO &
+      .or. CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO &
+      .or. CS%Coriolis_scheme_CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO
 
   if (use_weno) then
     call get_param(param_file, mdl, "WENO_VELOCITY_SMOOTH", CS%weno_velocity_smooth, &
@@ -2544,7 +2583,7 @@ subroutine CoriolisAdv_init(Time, G, GV, US, param_file, diag, AD, CS)
                   default=.false.)
   endif
 
-  if (CS%Coriolis_Scheme == AL_BLEND) then
+  if (CS%Coriolis_scheme_CS%Coriolis_Scheme == AL_BLEND) then
     call get_param(param_file, mdl, "CORIOLIS_BLEND_WT_LIN", CS%wt_lin_blend, &
                  "A weighting value for the ratio of inverse thicknesses, "//&
                  "beyond which the blending between Sadourny Energy and "//&
@@ -2566,7 +2605,8 @@ subroutine CoriolisAdv_init(Time, G, GV, US, param_file, diag, AD, CS)
   mesg = "If true, the Coriolis terms at u-points are bounded by "//&
          "the four estimates of (f+rv)v from the four neighboring "//&
          "v-points, and similarly at v-points."
-  if (CS%Coriolis_En_Dis .and. (CS%Coriolis_Scheme == SADOURNY75_ENERGY)) then
+  if (CS%Coriolis_scheme_CS%Coriolis_En_Dis .and. &
+      (CS%Coriolis_scheme_CS%Coriolis_Scheme == SADOURNY75_ENERGY)) then
     mesg = trim(mesg)//"  This option is "//&
                  "always effectively false with CORIOLIS_EN_DIS defined and "//&
                  "CORIOLIS_SCHEME set to "//trim(SADOURNY75_ENERGY_STRING)//"."
@@ -2577,8 +2617,9 @@ subroutine CoriolisAdv_init(Time, G, GV, US, param_file, diag, AD, CS)
   endif
   call get_param(param_file, mdl, "BOUND_CORIOLIS", CS%bound_Coriolis, mesg, &
                  default=.false.)
-  if ((CS%Coriolis_En_Dis .and. (CS%Coriolis_Scheme == SADOURNY75_ENERGY)) .or. &
-      (CS%Coriolis_Scheme == ROBUST_ENSTRO)) CS%bound_Coriolis = .false.
+  if ((CS%Coriolis_scheme_CS%Coriolis_En_Dis .and. &
+       (CS%Coriolis_scheme_CS%Coriolis_Scheme == SADOURNY75_ENERGY)) .or. &
+      (CS%Coriolis_scheme_CS%Coriolis_Scheme == ROBUST_ENSTRO)) CS%bound_Coriolis = .false.
 
   ! Set KE_Scheme (selects discretization of KE)
   call get_param(param_file, mdl, "KE_SCHEME", tmpstr, &
