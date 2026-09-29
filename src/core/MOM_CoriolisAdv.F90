@@ -306,6 +306,8 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
   real :: h_tiny        ! A very small thickness [H ~> m or kg m-2].
   type(Box_t) :: bxH    ! The h-point iteration box of one tile, [isc:iec, jsc:jec, k_start:k_end]
   type(Box_t) :: bxQ    ! The B-grid-index iteration box of one tile, [IscB:IecB, JscB:JecB, k_start:k_end]
+  type(Box_t) :: bxU    ! The u-point iteration box of one tile, [IscB:IecB, jsc:jec, k_start:k_end]
+  type(Box_t) :: bxV    ! The v-point iteration box of one tile, [isc:iec, JscB:JecB, k_start:k_end]
   type(Box_t) :: bxQs   ! The scheme-dependent vorticity-point box of one tile,
                         ! [Is_q:Ie_q, Js_q:Je_q, k_start:k_end]
   integer :: i, j, n, is, ie, js, je, nkblock, k_start, k_end
@@ -413,11 +415,14 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
   call CAu_a%view(CAu) ; call CAv_a%view(CAv)
 
   call bxH%safe_alloc(ndims=3) ; call bxQ%safe_alloc(ndims=3) ; call bxQs%safe_alloc(ndims=3)
+  call bxU%safe_alloc(ndims=3) ; call bxV%safe_alloc(ndims=3)
   do k_start=1,nz,nkblock
     k_end = min(k_start+nkblock-1, nz)
     call bxH%set(idxS=[G%isc,G%jsc,k_start], idxE=[G%iec,G%jec,k_end])
     call bxQ%set(idxS=[G%IscB,G%JscB,k_start], idxE=[G%IecB,G%JecB,k_end])
     call bxQs%set(idxS=[Is_q,Js_q,k_start], idxE=[Ie_q,Je_q,k_end])
+    call bxU%set(idxS=[G%IscB,G%jsc,k_start], idxE=[G%IecB,G%jec,k_end])
+    call bxV%set(idxS=[G%isc,G%JscB,k_start], idxE=[G%iec,G%JecB,k_end])
 
     call q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
@@ -460,29 +465,30 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
                       h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
 
     ! Calculate KE and the gradient of KE
-    call gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, CS%KE_Scheme, CS%KE_use_limiter)
+    call gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, bxU, bxV, G, CS%KE_Scheme, &
+                CS%KE_use_limiter)
     ! TODO: Can KE be removed from this function?
 
     ! Calculate the Coriolis and momentum advection accelerations, CAu and CAv, with the selected
     ! scheme.  On a Cartesian grid, CAu =  q * vh - d(KE)/dx and CAv = - q * uh - d(KE)/dy.
     select case (CS%Coriolis_scheme_CS%Coriolis_Scheme)
     case (SADOURNY75_ENERGY, SADOURNY75_ENSTRO)
-      call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, &
-                           CAu_a, CAv_a, CS%Coriolis_scheme_CS)
+      call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, bxU, &
+                           bxV, CAu_a, CAv_a, CS%Coriolis_scheme_CS)
     case (ARAKAWA_HSU90, ARAKAWA_LAMB81, AL_BLEND)
-      call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, CAu_a, CAv_a, &
-                          CS%wt_lin_blend, CS%Coriolis_scheme_CS)
+      call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, bxU, bxV, CAu_a, &
+                          CAv_a, CS%wt_lin_blend, CS%Coriolis_scheme_CS)
     case (ROBUST_ENSTRO)
-      call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxH, &
-                                bxQ, CAu_a, CAv_a, CS%PV_Adv_Scheme)
+      call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxU, &
+                                bxV, CAu_a, CAv_a, CS%PV_Adv_Scheme)
     case (wenovi7th_PV_ENSTRO, wenovi5th_PV_ENSTRO, wenovi3rd_PV_ENSTRO)
-      call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxH, bxQ, &
+      call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxU, bxV, &
                        CAu_a, CAv_a, CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
     end select
 
     ! The Stokes-drift diagnostic, bounding, the kinetic energy gradient, and diagnostics.
     call CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
-                             Stokes_VF, G, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+                             Stokes_VF, G, bxU, bxV, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
 
     !$omp target exit data map(delete: abs_vort, q, Ih_q)
     !$omp target exit data map(delete: h_q) if (use_weno)
@@ -499,6 +505,7 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
     call KEy_a%free() ; call vh_center_a%free()
   enddo ! end of tile loop.
   call bxH%free() ; call bxQ%free() ; call bxQs%free()
+  call bxU%free() ; call bxV%free()
 
   !$omp target exit data map(delete: Area_h, Area_q)
 
@@ -889,13 +896,17 @@ end subroutine CorAdv_setup
 
 !> Calculates the Coriolis and momentum advection accelerations with the Sadourny (1975)
 !! energy- or enstrophy-conserving schemes (SADOURNY75_ENERGY, SADOURNY75_ENSTRO), over one tile.
-subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, &
-                           CAu_a, CAv_a, CS)
+subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, bxU, &
+                           bxV, CAu_a, CAv_a, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
                                                 !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a         !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a         !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: uh_a        !< Zonal transport u*h*dy
@@ -998,7 +1009,8 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
   if (CS%Coriolis_Scheme == SADOURNY75_ENERGY) then
     if (CS%Coriolis_En_Dis) then
       ! Energy dissipating biased scheme, Hallberg 200x
-      do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) DO_LOCALITY(local(temp1, temp2))
+      do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                     I=bxU%idxS(1):bxU%idxE(1)) DO_LOCALITY(local(temp1, temp2))
         if (q(I,J,k)*u(I,j,k) == 0.0) then
           temp1 = q(I,J,k) * ( (vh_max(i,j,k)+vh_max(i+1,j,k)) &
                            + (vh_min(i,j,k)+vh_min(i+1,j,k)) )*0.5
@@ -1019,14 +1031,16 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
       enddo
     else
       ! Energy conserving scheme, Sadourny 1975
-      do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+      do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                     I=bxU%idxS(1):bxU%idxE(1))
         CAu(I,j,k) = 0.25 * &
           ((q(I,J,k) * (vh(i+1,J,k) + vh(i,J,k))) + &
            (q(I,J-1,k) * (vh(i,J-1,k) + vh(i+1,J-1,k)))) * G%IdxCu(I,j)
       enddo
     endif
   elseif (CS%Coriolis_Scheme == SADOURNY75_ENSTRO) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1))
       CAu(I,j,k) = 0.125 * (G%IdxCu(I,j) * (q(I,J,k) + q(I,J-1,k))) * &
                    ((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
     enddo
@@ -1038,7 +1052,8 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
   if (CS%Coriolis_Scheme == SADOURNY75_ENERGY) then
     if (CS%Coriolis_En_Dis) then
       ! Energy dissipating biased scheme, Hallberg 200x
-      do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) DO_LOCALITY(local(temp1, temp2))
+      do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                     i=bxV%idxS(1):bxV%idxE(1)) DO_LOCALITY(local(temp1, temp2))
         if (q(I-1,J,k)*v(i,J,k) == 0.0) then
           temp1 = q(I-1,J,k) * ( (uh_max(i-1,j,k)+uh_max(i-1,j+1,k)) &
                              + (uh_min(i-1,j,k)+uh_min(i-1,j+1,k)) )*0.5
@@ -1059,14 +1074,16 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
       enddo
     else
       ! Energy conserving scheme, Sadourny 1975
-      do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+      do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                     i=bxV%idxS(1):bxV%idxE(1))
         CAv(i,J,k) = - 0.25* &
             ((q(I-1,J,k)*(uh(I-1,j,k) + uh(I-1,j+1,k))) + &
              (q(I,J,k)*(uh(I,j,k) + uh(I,j+1,k)))) * G%IdyCv(i,J)
       enddo
     endif
   elseif (CS%Coriolis_Scheme == SADOURNY75_ENSTRO) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1))
       CAv(i,J,k) = -0.125 * (G%IdyCv(i,J) * (q(I-1,J,k) + q(I,J,k))) * &
                    ((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
     enddo
@@ -1079,13 +1096,17 @@ end subroutine CorAdv_sadourny
 
 !> Calculates the Coriolis and momentum advection accelerations with the Arakawa & Hsu (1990),
 !! Arakawa & Lamb (1981) or blended (ARAKAWA_LAMB_BLEND) schemes, over one tile.
-subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, CAu_a, CAv_a, &
-                          wt_lin_blend, CS)
+subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, bxU, bxV, CAu_a, &
+                          CAv_a, wt_lin_blend, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
                                                 !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: uh_a   !< Zonal transport u*h*dy
                                              !! [H L2 T-1 ~> m3 s-1 or kg s-1]
   type(RealArray_t), intent(in)    :: vh_a   !< Meridional transport v*h*dx
@@ -1125,12 +1146,12 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   real :: Sad_wt        ! The relative weight of the Sadourny energy scheme to
                         ! the other two with the ARAKAWA_LAMB_BLEND scheme [nondim],
                         ! between 0 and 1.
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k, is, Isq, Ieq, Jsq, Jeq, ksc, kec
 
   call uh_a%view(uh) ; call vh_a%view(vh) ; call q_a%view(q)
   call Ih_q_a%view(Ih_q) ; call CAu_a%view(CAu) ; call CAv_a%view(CAv)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
+  is = bxH%idxS(1)
   Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
 
@@ -1206,7 +1227,8 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAu =  q * vh - d(KE)/dx.
     ! (Global) Energy and (Local) Enstrophy conserving, Arakawa & Hsu 1990
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1))
       CAu(I,j,k) = (((a(I,j,k) * vh(i+1,J,k)) +  (c(I,j,k) * vh(i,J-1,k)))  + &
                     ((b(I,j,k) * vh(i,J,k)) +  (d(I,j,k) * vh(i+1,J-1,k)))) * G%IdxCu(I,j)
     enddo
@@ -1214,7 +1236,8 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   ! Add in the additional terms with Arakawa & Lamb.
   if ((CS%Coriolis_Scheme == ARAKAWA_LAMB81) .or. &
       (CS%Coriolis_Scheme == AL_BLEND)) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1))
       CAu(I,j,k) = CAu(I,j,k) + &
             ((ep_u(i,j,k)*uh(I-1,j,k)) - (ep_u(i+1,j,k)*uh(I+1,j,k))) * G%IdxCu(I,j)
     enddo
@@ -1224,7 +1247,8 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAv = - q * uh - d(KE)/dy.
     ! (Global) Energy and (Local) Enstrophy conserving, Arakawa & Hsu 1990
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1))
       CAv(i,J,k) = - (((a(I-1,j,k)   * uh(I-1,j,k)) + &
                        (c(I,j+1,k)   * uh(I,j+1,k)))  &
                     + ((b(I,j,k)     * uh(I,j,k)) +   &
@@ -1233,7 +1257,8 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   ! Add in the additonal terms with Arakawa & Lamb.
   if ((CS%Coriolis_Scheme == ARAKAWA_LAMB81) .or. &
       (CS%Coriolis_Scheme == AL_BLEND)) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1))
       CAv(i,J,k) = CAv(i,J,k) + &
             ((ep_v(i,j,k)*vh(i,J-1,k)) - (ep_v(i,j+1,k)*vh(i,J+1,k))) * G%IdyCv(i,J)
     enddo
@@ -1245,13 +1270,13 @@ end subroutine CorAdv_arakawa
 
 !> Calculates the Coriolis and momentum advection accelerations with the pseudo-enstrophy
 !! scheme that is robust to vanishing layers (ROBUST_ENSTRO), over one tile.
-subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxH, &
-                                bxQ, CAu_a, CAv_a, PV_Adv_Scheme)
+subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxU, &
+                                bxV, CAu_a, CAv_a, PV_Adv_Scheme)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
-                                                !! [isc:iec, jsc:jec, ksc:kec]
-  type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
-                                                !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a        !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a        !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: h_a        !< Layer thickness [H ~> m or kg m-2]
@@ -1275,15 +1300,11 @@ subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, 
   real :: Heff3, Heff4  ! Temporary effective H at U or V points [H ~> m or kg m-2].
   real :: UHeff, VHeff  ! More temporary variables [H L2 T-1 ~> m3 s-1 or kg s-1].
   real :: QUHeff,QVHeff ! More temporary variables [H L2 T-2 ~> m3 s-2 or kg s-2].
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k
 
   call u_a%view(u) ; call v_a%view(v) ; call h_a%view(h)
   call uh_a%view(uh) ; call vh_a%view(vh) ; call abs_vort_a%view(abs_vort)
   call CAu_a%view(CAu) ; call CAv_a%view(CAv)
-
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
-  Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
-  ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
 
   ! Calculate the tendencies of zonal velocity due to the Coriolis
   ! force and momentum advection.  On a Cartesian grid, this is
@@ -1291,7 +1312,8 @@ subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, 
     ! An enstrophy conserving scheme robust to vanishing layers
     ! Note: Heffs are in lieu of h_at_v that should be returned by the
     !       continuity solver. AJA
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1)) &
         DO_LOCALITY(local(Heff1, Heff2, Heff3, Heff4, VHeff, QVHeff))
       Heff1 = abs(vh(i,J,k) * G%IdxCv(i,J)) / (eps_vel+abs(v(i,J,k)))
       Heff1 = max(Heff1, min(h(i,j,k),h(i,j+1,k)))
@@ -1323,7 +1345,8 @@ subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, 
     ! An enstrophy conserving scheme robust to vanishing layers
     ! Note: Heffs are in lieu of h_at_u that should be returned by the
     !       continuity solver. AJA
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1)) &
         DO_LOCALITY(local(Heff1, Heff2, Heff3, Heff4, UHeff, QUHeff))
       Heff1 = abs(uh(I,j,k) * G%IdyCu(I,j)) / (eps_vel+abs(u(I,j,k)))
       Heff1 = max(Heff1, min(h(i,j,k),h(i+1,j,k)))
@@ -1357,16 +1380,16 @@ end subroutine CorAdv_robust_enstro
 !> Calculates the Coriolis and momentum advection accelerations with the WENO PV-reconstruction
 !! schemes (WENOVI7TH/5TH/3RD_PV_ENSTRO), over one tile.  Near land the reconstruction falls back to
 !! narrower stencils, down to first-order upwind.
-subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxH, bxQ, &
+subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxU, bxV, &
                        CAu_a, CAv_a, weno_velocity_smooth, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   real, intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to a
                                     !! thickness of Angstrom or larger without changing it at the
                                     !! bit level [H ~> m or kg m-2].
-  type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
-                                                !! [isc:iec, jsc:jec, ksc:kec]
-  type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
-                                                !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a        !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a        !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: uh_a       !< Zonal transport u*h*dy
@@ -1397,21 +1420,18 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
   real :: v_q8(8) ! Eight-point meridional velocity at WENO stencils [L T-1 ~> m s-1]
   real :: v_q6(6) ! Six-point meridional velocity at WENO stencils [L T-1 ~> m s-1]
   real :: v_q4(4) ! Four-point meridional velocity at WENO stencils [L T-1 ~> m s-1]
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k
 
   call u_a%view(u) ; call v_a%view(v) ; call uh_a%view(uh)
   call vh_a%view(vh) ; call q_a%view(q) ; call abs_vort_a%view(abs_vort)
   call h_q_a%view(h_q) ; call CAu_a%view(CAu) ; call CAv_a%view(CAv)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
-  Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
-  ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
-
   ! Calculate the tendencies of zonal velocity due to the Coriolis
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAu =  q * vh - d(KE)/dx.
   if (CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1)) &
         DO_LOCALITY(local(v_u, q_u, third_order, fifth_order, seventh_order, u_q8, u_q6, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       ! check whether there is masked land points in the stencil
@@ -1420,7 +1440,6 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
 
       fifth_order   = third_order * G%mask2dCu(I,j-3) * G%mask2dCu(I,j+3)
       seventh_order = fifth_order * G%mask2dCu(I,j-4) * G%mask2dCu(I,j+4)
-
 
       ! compute the masking to make sure that inland values are not used
       if (seventh_order == 1) then
@@ -1460,7 +1479,8 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
       endif
     enddo
   elseif (CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1)) &
         DO_LOCALITY(local(v_u, q_u, third_order, fifth_order, u_q6, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       third_order = (G%mask2dCu(I,j-2) * G%mask2dCu(I,j-1) * G%mask2dCu(I,j) * &
@@ -1496,12 +1516,12 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
       endif
     enddo
   elseif (CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) &
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1)) &
         DO_LOCALITY(local(v_u, q_u, third_order, u_q4))
       v_u = 0.25*G%IdxCu(I,j)*((vh(i+1,J,k) + vh(i,J,k)) + (vh(i,J-1,k) + vh(i+1,J-1,k)))
       third_order = (G%mask2dCu(I,j-2) * G%mask2dCu(I,j-1) * G%mask2dCu(I,j) * &
                      G%mask2dCu(I,j+1) * G%mask2dCu(I,j+2))
-
 
       if (third_order == 1) then
         ! only the middle values are valid, we use third order reconstruction
@@ -1527,7 +1547,8 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
   ! force and momentum advection.  On a Cartesian grid, this is
   !     CAv = - q * uh - d(KE)/dy.
   if (CS%Coriolis_Scheme == wenovi7th_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1)) &
         DO_LOCALITY(local(u_v, q_v, third_order, fifth_order, seventh_order, v_q8, v_q6, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
@@ -1536,8 +1557,6 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
                      G%mask2dCv(i+2,J))
       fifth_order   = third_order * G%mask2dCv(i-3,J) * G%mask2dCv(i+3,J)
       seventh_order = fifth_order * G%mask2dCv(i-4,J) * G%mask2dCv(i+4,J)
-
-
 
       ! compute the masking to make sure that inland values are not used
       if (seventh_order == 1) then
@@ -1577,14 +1596,14 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
 
     enddo
   elseif (CS%Coriolis_Scheme == wenovi5th_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1)) &
         DO_LOCALITY(local(u_v, q_v, third_order, fifth_order, v_q6, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
       third_order = (G%mask2dCv(i-2,J) * G%mask2dCv(i-1,J) * G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * &
                      G%mask2dCv(i+2,J))
       fifth_order   = third_order * G%mask2dCv(i-3,J) * G%mask2dCv(i+3,J)
-
 
       ! compute the masking to make sure that inland values are not used
       if (fifth_order == 1) then
@@ -1616,13 +1635,13 @@ subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subrou
 
     enddo
   elseif (CS%Coriolis_Scheme == wenovi3rd_PV_ENSTRO) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) &
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1)) &
         DO_LOCALITY(local(u_v, q_v, third_order, v_q4))
       u_v = 0.25*G%IdyCv(i,J)*((uh(I-1,j,k) + uh(I-1,j+1,k)) + (uh(I,j,k) + uh(I,j+1,k)))
 
       third_order = (G%mask2dCv(i-2,J) * G%mask2dCv(i-1,J) * G%mask2dCv(i,J) * G%mask2dCv(i+1,J) * &
                      G%mask2dCv(i+2,J))
-
 
       ! compute the masking to make sure that inland values are not used
       if (third_order == 1) then
@@ -1652,12 +1671,12 @@ end subroutine CorAdv_weno
 !! the Stokes-drift diagnostic, the optional bounding of the Coriolis terms and the kinetic energy
 !! gradient, and the diagnostics of the kinetic energy gradient and relative-vorticity terms.
 subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
-                               Stokes_VF, G, bxH, bxQ, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+                               Stokes_VF, G, bxU, bxV, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
-  type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
-                                                !! [isc:iec, jsc:jec, ksc:kec]
-  type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
-                                                !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a        !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a        !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: uh_a       !< Zonal transport u*h*dy
@@ -1692,7 +1711,7 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   real :: max_fv, max_fu       ! The maximum of the neighboring Coriolis accelerations [L T-2 ~> m s-2]
   real :: min_fv, min_fu       ! The minimum of the neighboring Coriolis accelerations [L T-2 ~> m s-2]
   real, parameter :: C1_12 = 1.0 / 12.0 ! C1_12 = 1/12 [nondim]
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k
 
   call u_a%view(u) ; call v_a%view(v) ; call uh_a%view(uh)
   call vh_a%view(vh) ; call abs_vort_a%view(abs_vort) ; call qS_a%view(qS)
@@ -1700,14 +1719,11 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   call CAu_a%view(CAu) ; call CAv_a%view(CAv) ; call CAuS_a%view(CAuS)
   call CAvS_a%view(CAvS)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
-  Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
-  ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
-
   if (Stokes_VF) then
     if (CS%id_CAuS>0 .or. CS%id_CAvS>0) then
       ! Computing the diagnostic Stokes contribution to CAu
-      do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+      do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                     I=bxU%idxS(1):bxU%idxE(1))
         CAuS(I,j,k) = 0.25 * &
               ((qS(I,J,k) * (vh(i+1,J,k) + vh(i,J,k))) + &
                (qS(I,J-1,k) * (vh(i,J-1,k) + vh(i+1,J-1,k)))) * G%IdxCu(I,j)
@@ -1716,7 +1732,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   endif
 
   if (CS%bound_Coriolis) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq) DO_LOCALITY(local(fv1, fv2, fv3, fv4, max_fv, min_fv))
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1)) DO_LOCALITY(local(fv1, fv2, fv3, fv4, max_fv, min_fv))
       fv1 = abs_vort(I,J,k) * v(i+1,J,k)
       fv2 = abs_vort(I,J,k) * v(i,J,k)
       fv3 = abs_vort(I,J-1,k) * v(i+1,J-1,k)
@@ -1731,12 +1748,14 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   endif
 
   ! Term - d(KE)/dx.
-  do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+  do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                 I=bxU%idxS(1):bxU%idxE(1))
     CAu(I,j,k) = CAu(I,j,k) - KEx(I,j,k)
   enddo
 
   if (associated(AD%gradKEu)) then
-    do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+    do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                   I=bxU%idxS(1):bxU%idxE(1))
       AD%gradKEu(I,j,k) = -KEx(I,j,k)
     enddo
   endif
@@ -1744,7 +1763,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   if (Stokes_VF) then
     if (CS%id_CAuS>0 .or. CS%id_CAvS>0) then
       ! Computing the diagnostic Stokes contribution to CAv
-      do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+      do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                     i=bxV%idxS(1):bxV%idxE(1))
         CAvS(i,J,k) = 0.25 * &
               ((qS(I,J,k) * (uh(I,j+1,k) + uh(I,j,k))) + &
                (qS(I-1,J,k) * (uh(I-1,j,k) + uh(I-1,j+1,k)))) * G%IdyCv(i,J)
@@ -1753,7 +1773,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   endif
 
   if (CS%bound_Coriolis) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie) DO_LOCALITY(local(fu1, fu2, fu3, fu4, max_fu, min_fu))
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1)) DO_LOCALITY(local(fu1, fu2, fu3, fu4, max_fu, min_fu))
       fu1 = -abs_vort(I,J,k) * u(I,j+1,k)
       fu2 = -abs_vort(I,J,k) * u(I,j,k)
       fu3 = -abs_vort(I-1,J,k) * u(I-1,j+1,k)
@@ -1768,11 +1789,13 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
   endif
 
   ! Term - d(KE)/dy.
-  do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+  do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                 i=bxV%idxS(1):bxV%idxE(1))
     CAv(i,J,k) = CAv(i,J,k) - KEy(i,J,k)
   enddo
   if (associated(AD%gradKEv)) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+    do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                   i=bxV%idxS(1):bxV%idxE(1))
       AD%gradKEv(i,J,k) = -KEy(i,J,k)
     enddo
   endif
@@ -1781,7 +1804,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
     ! Calculate the Coriolis-like acceleration due to relative vorticity.
     if (CS%Coriolis_scheme_CS%Coriolis_Scheme == SADOURNY75_ENERGY) then
       if (associated(AD%rv_x_u)) then
-        do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+        do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                       i=bxV%idxS(1):bxV%idxE(1))
           AD%rv_x_u(i,J,k) = - 0.25* &
             ((q2(I-1,j,k)*(uh(I-1,j,k) + uh(I-1,j+1,k))) + &
              (q2(I,j,k)*(uh(I,j,k) + uh(I,j+1,k)))) * G%IdyCv(i,J)
@@ -1789,7 +1813,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
       endif
 
       if (associated(AD%rv_x_v)) then
-        do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+        do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                       I=bxU%idxS(1):bxU%idxE(1))
           AD%rv_x_v(I,j,k) = 0.25 * &
             ((q2(I,j,k) * (vh(i+1,J,k) + vh(i,J,k))) + &
              (q2(I,j-1,k) * (vh(i,J-1,k) + vh(i+1,J-1,k)))) * G%IdxCu(I,j)
@@ -1797,7 +1822,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
       endif
     else
       if (associated(AD%rv_x_u)) then
-        do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+        do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                       i=bxV%idxS(1):bxV%idxE(1))
           AD%rv_x_u(i,J,k) = -G%IdyCv(i,J) * C1_12 * &
             (((((q2(I,J,k) + q2(I-1,J-1,k)) + q2(I-1,J,k)) * uh(I-1,j,k)) + &
               (((q2(I-1,J,k) + q2(I,J+1,k)) + q2(I,J,k)) * uh(I,j+1,k))) + &
@@ -1807,7 +1833,8 @@ subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx
       endif
 
       if (associated(AD%rv_x_v)) then
-        do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+        do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                       I=bxU%idxS(1):bxU%idxE(1))
           AD%rv_x_v(I,j,k) = G%IdxCu(I,j) * C1_12 * &
             (((((q2(I+1,J,k) + q2(I,J-1,k)) + q2(I,J,k)) * vh(i+1,J,k)) + &
               (((q2(I-1,J-1,k) + q2(I,J,k)) + q2(I,J-1,k)) * vh(i,J-1,k))) + &
@@ -1885,12 +1912,16 @@ end subroutine CorAdv_finalize_diagnostics
 
 
 !> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile.
-subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, KE_Scheme, KE_use_limiter)
+subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, bxU, bxV, G, KE_Scheme, KE_use_limiter)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
   type(Box_t),                                intent(in)  :: bxH !< The h-point iteration box of this
                                                                  !! tile, [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),                                intent(in)  :: bxQ !< The B-grid-index iteration box of
                                                                  !! this tile, [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),                   intent(in)  :: bxU !< The u-point iteration box of this tile,
+                                                    !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),                   intent(in)  :: bxV !< The v-point iteration box of this tile,
+                                                    !! [isc:iec, JscB:JecB, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a   !< Zonal velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(in)    :: v_a   !< Meridional velocity [L T-1 ~> m s-1]
   type(RealArray_t), intent(inout) :: KE_a  !< Kinetic energy per unit mass [L2 T-2 ~> m2 s-2]
@@ -1909,13 +1940,12 @@ subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, KE_Scheme, KE_use_l
   real :: um2, up2, vm2, vp2     ! Temporary variables [L2 T-2 ~> m2 s-2].
   real :: um2a, up2a, vm2a, vp2a ! Temporary variables [L4 T-2 ~> m4 s-2].
   real :: third_order_u, third_order_v  ! Product of mask values to determine the boundary
-  integer :: i, j, k, ksc, kec, is, ie, js, je, Isq, Ieq, Jsq, Jeq
+  integer :: i, j, k, ksc, kec, Isq, Ieq, Jsq, Jeq
   real, parameter     :: C1_12 = 1.0/12.0   ! The ratio of 1/12 [nondim]
 
   call u_a%view(u) ; call v_a%view(v)
   call KE_a%view(KE) ; call KEx_a%view(KEx) ; call KEy_a%view(KEy)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
   Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
 
@@ -2038,12 +2068,14 @@ subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, G, KE_Scheme, KE_use_l
   endif
 
   ! Term - d(KE)/dx.
-  do concurrent (k=ksc:kec, j=js:je, I=Isq:Ieq)
+  do concurrent (k=bxU%idxS(3):bxU%idxE(3), j=bxU%idxS(2):bxU%idxE(2), &
+                 I=bxU%idxS(1):bxU%idxE(1))
     KEx(I,j,k) = (KE(i+1,j,k) - KE(i,j,k)) * G%IdxCu_OBCmask(I,j)
   enddo
 
   ! Term - d(KE)/dy.
-  do concurrent (k=ksc:kec, J=Jsq:Jeq, i=is:ie)
+  do concurrent (k=bxV%idxS(3):bxV%idxE(3), J=bxV%idxS(2):bxV%idxE(2), &
+                 i=bxV%idxS(1):bxV%idxE(1))
     KEy(i,J,k) = (KE(i,j+1,k) - KE(i,j,k)) * G%IdyCv_OBCmask(i,J)
   enddo
 end subroutine gradKE
