@@ -99,6 +99,7 @@ use MOM_forcing_type,          only : homogenize_forcing, homogenize_mech_forcin
 use MOM_grid,                  only : ocean_grid_type, MOM_grid_init, MOM_grid_end
 use MOM_grid,                  only : set_first_direction
 use MOM_grid_containers,       only : grid_core_init, grid_core_end
+use MOM_grid_containers,       only : grid_OBC_init, grid_OBC_end
 use MOM_harmonic_analysis,     only : HA_accum, harmonic_analysis_CS
 use MOM_hor_index,             only : hor_index_type, hor_index_init
 use MOM_hor_index,             only : rotate_hor_index
@@ -3548,6 +3549,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
   endif
 
   call grid_core_init(CS%G)
+  call grid_OBC_init(CS%G)
 
   ! At this point, all user-modified initialization code has been called.  The
   ! remainder of this subroutine is controlled by the parameters that have
@@ -4790,6 +4792,7 @@ subroutine MOM_end(CS)
 
   call verticalGridEnd(CS%GV)
   call grid_core_end()
+  call grid_OBC_end()
   call MOM_grid_end(CS%G)
 
   if (CS%debug .or. CS%G%symmetric) &
