@@ -460,12 +460,12 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
     !$omp   if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
 
     ! Potential vorticity and the related quantities at q points used by every scheme.
-    call CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
-                      Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, abs_vort_a, &
-                      h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
+    call CorAdv_setup(bxH, bxQ, bxU, bxV, bxQs, u_a, v_a, h_a, OBC, AD, pbv, Waves, G, Area_h_a, &
+                      Area_q_a, Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, &
+                      abs_vort_a, h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
 
     ! Calculate KE and the gradient of KE
-    call gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, bxU, bxV, G, CS%KE_Scheme, &
+    call gradKE(bxH, bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, G, CS%KE_Scheme, &
                 CS%KE_use_limiter)
     ! TODO: Can KE be removed from this function?
 
@@ -473,22 +473,22 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
     ! scheme.  On a Cartesian grid, CAu =  q * vh - d(KE)/dx and CAv = - q * uh - d(KE)/dy.
     select case (CS%Coriolis_scheme_CS%Coriolis_Scheme)
     case (SADOURNY75_ENERGY, SADOURNY75_ENSTRO)
-      call CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, bxU, &
-                           bxV, CAu_a, CAv_a, CS%Coriolis_scheme_CS)
+      call CorAdv_sadourny(bxH, bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, &
+                           CAu_a, CAv_a, CS%Coriolis_scheme_CS)
     case (ARAKAWA_HSU90, ARAKAWA_LAMB81, AL_BLEND)
-      call CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, bxU, bxV, CAu_a, &
+      call CorAdv_arakawa(bxH, bxQ, bxU, bxV, uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, CAu_a, &
                           CAv_a, CS%wt_lin_blend, CS%Coriolis_scheme_CS)
     case (ROBUST_ENSTRO)
-      call CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxU, &
-                                bxV, CAu_a, CAv_a, CS%PV_Adv_Scheme)
+      call CorAdv_robust_enstro(bxU, bxV, u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, &
+                                G, CAu_a, CAv_a, CS%PV_Adv_Scheme)
     case (wenovi7th_PV_ENSTRO, wenovi5th_PV_ENSTRO, wenovi3rd_PV_ENSTRO)
-      call CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxU, bxV, &
+      call CorAdv_weno(bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, &
                        CAu_a, CAv_a, CS%weno_velocity_smooth, CS%Coriolis_scheme_CS)
     end select
 
     ! The Stokes-drift diagnostic, bounding, the kinetic energy gradient, and diagnostics.
-    call CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
-                             Stokes_VF, G, bxU, bxV, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+    call CorAdv_common_terms(bxU, bxV, u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
+                             Stokes_VF, G, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
 
     !$omp target exit data map(delete: abs_vort, q, Ih_q)
     !$omp target exit data map(delete: h_q) if (use_weno)
@@ -528,14 +528,18 @@ end subroutine CorAdCalc_TR
 
 !> Calculates the potential vorticity and the related quantities at q points that every
 !! Coriolis scheme uses, over one iteration tile.
-subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, Area_h_a, Area_q_a, &
-                        Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, abs_vort_a, &
-                        h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
+subroutine CorAdv_setup(bxH, bxQ, bxU, bxV, bxQs, u_a, v_a, h_a, OBC, AD, pbv, Waves, G, Area_h_a, &
+                        Area_q_a, Stokes_VF, use_weno, vol_neglect, area_neglect, q_a, Ih_q_a, &
+                        abs_vort_a, h_q_a, qS_a, q2_a, uh_center_a, vh_center_a, RV_a, PV_a, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
                                                 !! [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
+                                                !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
+                                                !! [isc:iec, JscB:JecB, ksc:kec]
   type(Box_t),             intent(in)    :: bxQs !< The scheme-dependent vorticity-point box,
                                                  !! [Is_q:Ie_q, Js_q:Je_q, ksc:kec]
   type(RealArray_t), intent(in)    :: u_a         !< Zonal velocity [L T-1 ~> m s-1]
@@ -575,6 +579,11 @@ subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, A
   type(CoriolisAdv_CS),    intent(in)    :: CS  !< Control structure for MOM_CoriolisAdv
 
   ! Local variables
+  type(Box_t) :: bxt   ! A temporary iteration box
+  type(Box_t) :: bxUx  ! bxU grown by one point at the end in i and the start in j,
+                       ! [IscB:IecB+1, jsc-1:jec, ksc:kec]
+  type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
+                       ! [isc-1:iec, JscB:JecB+1, ksc:kec]
   real, dimension(:,:,:), contiguous, pointer :: u, v, h, q, Ih_q, abs_vort, h_q, qS, q2, &
     uh_center, vh_center, RV, PV
   real, dimension(:,:), contiguous, pointer :: Area_h, Area_q
@@ -593,7 +602,7 @@ subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, A
                     ! times the effective areas [H L2 ~> m3 or kg].
   real :: hArea_q   ! The sum of area times thickness of the cells
                     ! surrounding a q point [H L2 ~> m3 or kg].
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec, n
+  integer :: i, j, k, is, js, Isq, Ieq, Jsq, Jeq, ksc, kec, n
   integer :: Is_q, Ie_q, Js_q, Je_q  ! The scheme-dependent range of values at which vorticity is set.
 
   call u_a%view(u) ; call v_a%view(v) ; call h_a%view(h)
@@ -602,10 +611,12 @@ subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, A
   call qS_a%view(qS) ; call q2_a%view(q2) ; call uh_center_a%view(uh_center)
   call vh_center_a%view(vh_center) ; call RV_a%view(RV) ; call PV_a%view(PV)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
+  is = bxH%idxS(1) ; js = bxH%idxS(2)
   Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
   Is_q = bxQs%idxS(1) ; Ie_q = bxQs%idxE(1) ; Js_q = bxQs%idxS(2) ; Je_q = bxQs%idxE(2)
+  bxt = bxU%growHi(dim=1, n=1) ; bxUx = bxt%growLo(dim=2, n=1) ; call bxt%free()
+  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
 
   !$omp target enter data map(alloc: dvdx, dudy)
   !$omp target enter data map(alloc: hArea_u, hArea_v)
@@ -655,11 +666,13 @@ subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, A
   enddo
 
   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis) then
-    do concurrent (k=ksc:kec, J=Jsq:Jeq+1, I=is-1:ie)
+    do concurrent (k=bxVx%idxS(3):bxVx%idxE(3), J=bxVx%idxS(2):bxVx%idxE(2), &
+                   I=bxVx%idxS(1):bxVx%idxE(1))
       uh_center(I,j,k) = 0.5 * ((G%dy_Cu(I,j)*pbv%por_face_areaU(I,j,k)) * u(I,j,k)) * (h(i,j,k) + h(i+1,j,k))
     enddo
 
-    do concurrent (k=ksc:kec, J=js-1:je, i=Isq:Ieq+1)
+    do concurrent (k=bxUx%idxS(3):bxUx%idxE(3), J=bxUx%idxS(2):bxUx%idxE(2), &
+                   i=bxUx%idxS(1):bxUx%idxE(1))
       vh_center(i,J,k) = 0.5 * ((G%dx_Cv(i,J)*pbv%por_face_areaV(i,J,k)) * v(i,J,k)) * (h(i,j,k) + h(i,j+1,k))
     enddo
   endif
@@ -891,18 +904,17 @@ subroutine CorAdv_setup(u_a, v_a, h_a, OBC, AD, pbv, Waves, G, bxH, bxQ, bxQs, A
   !$omp target exit data map(delete: hArea_u, hArea_v)
   !$omp target exit data map(delete: rel_vort)
   !$omp target exit data map(delete: dvSdx, duSdy, stk_vort) if (Stokes_VF)
+  call bxUx%free() ; call bxVx%free()
 end subroutine CorAdv_setup
 
 
 !> Calculates the Coriolis and momentum advection accelerations with the Sadourny (1975)
 !! energy- or enstrophy-conserving schemes (SADOURNY75_ENERGY, SADOURNY75_ENSTRO), over one tile.
-subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, bxH, bxQ, bxU, &
-                           bxV, CAu_a, CAv_a, CS)
+subroutine CorAdv_sadourny(bxH, bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, G, &
+                           CAu_a, CAv_a, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
                                                 !! [isc:iec, jsc:jec, ksc:kec]
-  type(Box_t),             intent(in)    :: bxQ !< The B-grid-index iteration box of this tile,
-                                                !! [IscB:IecB, JscB:JecB, ksc:kec]
   type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
                                                 !! [IscB:IecB, jsc:jec, ksc:kec]
   type(Box_t),             intent(in)    :: bxV !< The v-point iteration box of this tile,
@@ -928,6 +940,11 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
   type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
+  type(Box_t) :: bxt   ! A temporary iteration box
+  type(Box_t) :: bxUx  ! bxU grown by one point at the end in i and the start in j,
+                       ! [IscB:IecB+1, jsc-1:jec, ksc:kec]
+  type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
+                       ! [isc-1:iec, JscB:JecB+1, ksc:kec]
   real, dimension(:,:,:), contiguous, pointer :: u, v, uh, vh, q, uh_center, vh_center, CAu, CAv
   real, dimension(v_a%lb(1):v_a%ub(1),u_a%lb(2):u_a%ub(2),bxH%idxS(3):bxH%idxE(3)) :: &
     uh_min, uh_max, &   ! The smallest and largest estimates of the zonal volume fluxes through
@@ -938,15 +955,14 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
   real :: uhc, vhc               ! Centered estimates of uh and vh [H L2 T-1 ~> m3 s-1 or kg s-1].
   real :: uhm, vhm               ! The input estimates of uh and vh [H L2 T-1 ~> m3 s-1 or kg s-1].
   real :: c1, c2, c3, slope      ! Nondimensional parameters for the Coriolis limiter scheme [nondim]
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k
 
   call u_a%view(u) ; call v_a%view(v) ; call uh_a%view(uh)
   call vh_a%view(vh) ; call q_a%view(q) ; call uh_center_a%view(uh_center)
   call vh_center_a%view(vh_center) ; call CAu_a%view(CAu) ; call CAv_a%view(CAv)
 
-  is = bxH%idxS(1) ; ie = bxH%idxE(1) ; js = bxH%idxS(2) ; je = bxH%idxE(2)
-  Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
-  ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
+  bxt = bxU%growHi(dim=1, n=1) ; bxUx = bxt%growLo(dim=2, n=1) ; call bxt%free()
+  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
 
   ! TODO: May also need SADOURNEY75_ENERGY
   !$omp target enter data map(alloc: uh_min, vh_min) if (CS%Coriolis_En_Dis)
@@ -958,7 +974,8 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
   !  c1 = 1.0-1.5*RANGE ; c2 = 1.0-RANGE ; c3 = 2.0 ; slope = 0.5
     c1 = 1.0-1.5*0.5 ; c2 = 1.0-0.5 ; c3 = 2.0 ; slope = 0.5
 
-    do concurrent (k=ksc:kec, j=Jsq:Jeq+1, I=is-1:ie) DO_LOCALITY(local(uhc, uhm))
+    do concurrent (k=bxVx%idxS(3):bxVx%idxE(3), j=bxVx%idxS(2):bxVx%idxE(2), &
+                   I=bxVx%idxS(1):bxVx%idxE(1)) DO_LOCALITY(local(uhc, uhm))
       uhc = uh_center(I,j,k)
       uhm = uh(I,j,k)
       ! This sometimes matters with some types of open boundary conditions.
@@ -980,7 +997,8 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
       endif
     enddo
 
-    do concurrent (k=ksc:kec, J=js-1:je, i=Isq:Ieq+1) DO_LOCALITY(local(vhc, vhm))
+    do concurrent (k=bxUx%idxS(3):bxUx%idxE(3), J=bxUx%idxS(2):bxUx%idxE(2), &
+                   i=bxUx%idxS(1):bxUx%idxE(1)) DO_LOCALITY(local(vhc, vhm))
       vhc = vh_center(i,J,k)
       vhm = vh(i,J,k)
       ! This sometimes matters with some types of open boundary conditions.
@@ -1091,12 +1109,13 @@ subroutine CorAdv_sadourny(u_a, v_a, uh_a, vh_a, q_a, uh_center_a, vh_center_a, 
 
   !$omp target exit data map(delete: uh_min, vh_min) if (CS%Coriolis_En_Dis)
   !$omp target exit data map(delete: uh_max, vh_max) if (CS%Coriolis_En_Dis)
+  call bxUx%free() ; call bxVx%free()
 end subroutine CorAdv_sadourny
 
 
 !> Calculates the Coriolis and momentum advection accelerations with the Arakawa & Hsu (1990),
 !! Arakawa & Lamb (1981) or blended (ARAKAWA_LAMB_BLEND) schemes, over one tile.
-subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, bxU, bxV, CAu_a, &
+subroutine CorAdv_arakawa(bxH, bxQ, bxU, bxV, uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, CAu_a, &
                           CAv_a, wt_lin_blend, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxH !< The h-point iteration box of this tile,
@@ -1127,6 +1146,9 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
+  type(Box_t) :: bxt   ! A temporary iteration box
+  type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
+                       ! [isc-1:iec, JscB:JecB+1, ksc:kec]
   real, dimension(:,:,:), contiguous, pointer :: uh, vh, q, Ih_q, CAu, CAv
   real, dimension(uh_a%lb(1):uh_a%ub(1),uh_a%lb(2):uh_a%ub(2),bxH%idxS(3):bxH%idxE(3)) :: &
     a, b, c, d    ! a, b, c, & d are combinations of the potential vorticities
@@ -1146,14 +1168,14 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   real :: Sad_wt        ! The relative weight of the Sadourny energy scheme to
                         ! the other two with the ARAKAWA_LAMB_BLEND scheme [nondim],
                         ! between 0 and 1.
-  integer :: i, j, k, is, Isq, Ieq, Jsq, Jeq, ksc, kec
+  integer :: i, j, k, Isq, Ieq, Jsq, Jeq, ksc, kec
 
   call uh_a%view(uh) ; call vh_a%view(vh) ; call q_a%view(q)
   call Ih_q_a%view(Ih_q) ; call CAu_a%view(CAu) ; call CAv_a%view(CAv)
 
-  is = bxH%idxS(1)
   Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
+  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
 
   !$omp target enter data map(alloc: a, b, c, d, ep_u, ep_v)
 
@@ -1162,7 +1184,8 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   ! scheme.  All are defined at u grid points.
 
   if (CS%Coriolis_Scheme == ARAKAWA_HSU90) then
-    do concurrent (k=ksc:kec, j=Jsq:Jeq+1, I=is-1:Ieq)
+    do concurrent (k=bxVx%idxS(3):bxVx%idxE(3), j=bxVx%idxS(2):bxVx%idxE(2), &
+                   I=bxVx%idxS(1):bxVx%idxE(1))
       a(I,j,k) = (q(I,J,k) + (q(I+1,J,k) + q(I,J-1,k))) * C1_12
       d(I,j,k) = ((q(I,J,k) + q(I+1,J-1,k)) + q(I,J-1,k)) * C1_12
     enddo
@@ -1265,13 +1288,14 @@ subroutine CorAdv_arakawa(uh_a, vh_a, q_a, Ih_q_a, Fe_m2, rat_lin, G, bxH, bxQ, 
   endif
 
   !$omp target exit data map(delete: a, b, c, d, ep_u, ep_v)
+  call bxVx%free()
 end subroutine CorAdv_arakawa
 
 
 !> Calculates the Coriolis and momentum advection accelerations with the pseudo-enstrophy
 !! scheme that is robust to vanishing layers (ROBUST_ENSTRO), over one tile.
-subroutine CorAdv_robust_enstro(u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, G, bxU, &
-                                bxV, CAu_a, CAv_a, PV_Adv_Scheme)
+subroutine CorAdv_robust_enstro(bxU, bxV, u_a, v_a, h_a, uh_a, vh_a, abs_vort_a, eps_vel, h_tiny, &
+                                G, CAu_a, CAv_a, PV_Adv_Scheme)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
                                                 !! [IscB:IecB, jsc:jec, ksc:kec]
@@ -1380,7 +1404,7 @@ end subroutine CorAdv_robust_enstro
 !> Calculates the Coriolis and momentum advection accelerations with the WENO PV-reconstruction
 !! schemes (WENOVI7TH/5TH/3RD_PV_ENSTRO), over one tile.  Near land the reconstruction falls back to
 !! narrower stencils, down to first-order upwind.
-subroutine CorAdv_weno(u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, bxU, bxV, &
+subroutine CorAdv_weno(bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, abs_vort_a, h_q_a, G, H_subroundoff, &
                        CAu_a, CAv_a, weno_velocity_smooth, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   real, intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to a
@@ -1670,8 +1694,8 @@ end subroutine CorAdv_weno
 !> Adds the terms that are common to every Coriolis scheme to the accelerations over one tile:
 !! the Stokes-drift diagnostic, the optional bounding of the Coriolis terms and the kinetic energy
 !! gradient, and the diagnostics of the kinetic energy gradient and relative-vorticity terms.
-subroutine CorAdv_common_terms(u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
-                               Stokes_VF, G, bxU, bxV, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
+subroutine CorAdv_common_terms(bxU, bxV, u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, &
+                               KEy_a, Stokes_VF, G, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
   type(ocean_grid_type),   intent(in)    :: G   !< Ocean grid structure
   type(Box_t),             intent(in)    :: bxU !< The u-point iteration box of this tile,
                                                 !! [IscB:IecB, jsc:jec, ksc:kec]
@@ -1912,7 +1936,7 @@ end subroutine CorAdv_finalize_diagnostics
 
 
 !> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile.
-subroutine gradKE(u_a, v_a, KE_a, KEx_a, KEy_a, bxH, bxQ, bxU, bxV, G, KE_Scheme, KE_use_limiter)
+subroutine gradKE(bxH, bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, G, KE_Scheme, KE_use_limiter)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
   type(Box_t),                                intent(in)  :: bxH !< The h-point iteration box of this
                                                                  !! tile, [isc:iec, jsc:jec, ksc:kec]
