@@ -29,5 +29,6 @@ target_sources(mom6_ocean PRIVATE
     MOM_unit_tests.F90
     MOM_variables.F90
     MOM_grid.F90
+    MOM_grid_containers.F90
     MOM_verticalGrid.F90
 )

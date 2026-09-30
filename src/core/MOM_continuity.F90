@@ -1,7 +1,7 @@
 ! This file is part of MOM6, the Modular Ocean Model version 6.
 ! See the LICENSE file for licensing information.
 ! SPDX-License-Identifier: Apache-2.0
-!!SKILLS: 0.3
+!!SKILLS: 0.3.2
 
 !> Solve the layer continuity equation.
 module MOM_continuity
@@ -26,6 +26,7 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : BT_cont_type, porous_barrier_type
 use MOM_verticalGrid, only : verticalGrid_type
 use array_mod, only : RealArray_t
+use MOM_grid_containers, only : grid_core_type, grid_core
 
 implicit none ; private
 
@@ -111,9 +112,8 @@ subroutine continuity(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhbt, v
   type(RealArray_t) :: u_a, v_a, hin_a, h_a, uh_a, vh_a
   type(RealArray_t) :: uhbt_a, vhbt_a, visc_rem_u_a, visc_rem_v_a
   type(RealArray_t) :: u_cor_a, v_cor_a, du_cor_a, dv_cor_a
-  type(RealArray_t) :: mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a
-  type(RealArray_t) :: mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, dyCv_a
   type(Box_t) :: bx0
+  type(grid_core_type), pointer :: Gcore ! Persistent containers of heavily used grid fields
   integer :: stencil
   logical :: x_first
   type(BT_cont_type), pointer :: BT_cont_local ! continuity_PPM's BT_cont is mandatory (a
@@ -129,22 +129,9 @@ subroutine continuity(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhbt, v
 
   call bx0%safe_alloc(ndims=3)
   call bx0%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  Gcore => grid_core(G)
   stencil = continuity_stencil(CS)
   x_first = (MOD(G%first_direction,2) == 0)
-
-  call mask2dT_a%alloc(lb=LBOUND(G%mask2dT), ub=UBOUND(G%mask2dT), source=G%mask2dT)
-  call dy_Cu_a%alloc(lb=LBOUND(G%dy_Cu), ub=UBOUND(G%dy_Cu), source=G%dy_Cu)
-  call IareaT_a%alloc(lb=LBOUND(G%IareaT), ub=UBOUND(G%IareaT), source=G%IareaT)
-  call IdxT_a%alloc(lb=LBOUND(G%IdxT), ub=UBOUND(G%IdxT), source=G%IdxT)
-  call areaT_a%alloc(lb=LBOUND(G%areaT), ub=UBOUND(G%areaT), source=G%areaT)
-  call dxT_a%alloc(lb=LBOUND(G%dxT), ub=UBOUND(G%dxT), source=G%dxT)
-  call mask2dCu_a%alloc(lb=LBOUND(G%mask2dCu), ub=UBOUND(G%mask2dCu), source=G%mask2dCu)
-  call dxCu_a%alloc(lb=LBOUND(G%dxCu), ub=UBOUND(G%dxCu), source=G%dxCu)
-  call dx_Cv_a%alloc(lb=LBOUND(G%dx_Cv), ub=UBOUND(G%dx_Cv), source=G%dx_Cv)
-  call IdyT_a%alloc(lb=LBOUND(G%IdyT), ub=UBOUND(G%IdyT), source=G%IdyT)
-  call dyT_a%alloc(lb=LBOUND(G%dyT), ub=UBOUND(G%dyT), source=G%dyT)
-  call mask2dCv_a%alloc(lb=LBOUND(G%mask2dCv), ub=UBOUND(G%mask2dCv), source=G%mask2dCv)
-  call dyCv_a%alloc(lb=LBOUND(G%dyCv), ub=UBOUND(G%dyCv), source=G%dyCv)
 
   if (present(uhbt)) call uhbt_a%alloc(lb=LBOUND(uhbt), ub=UBOUND(uhbt), source=uhbt)
   if (present(vhbt)) call vhbt_a%alloc(lb=LBOUND(vhbt), ub=UBOUND(vhbt), source=vhbt)
@@ -160,13 +147,11 @@ subroutine continuity(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhbt, v
   nullify(BT_cont_local)
   if (present(BT_cont)) BT_cont_local => BT_cont
 
-  call continuity_PPM(u_a, v_a, hin_a, h_a, uh_a, vh_a, dt, bx0, stencil, x_first, &
-                       mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a, &
-                       mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, dyCv_a, &
-                       G%isd, G%ied, GV%Angstrom_H, GV%H_subroundoff, CS, OBC, pbv, &
-                       uhbt_a=uhbt_a, vhbt_a=vhbt_a, visc_rem_u_a=visc_rem_u_a, &
-                       visc_rem_v_a=visc_rem_v_a, u_cor_a=u_cor_a, v_cor_a=v_cor_a, &
-                       BT_cont=BT_cont_local, du_cor_a=du_cor_a, dv_cor_a=dv_cor_a)
+  call continuity_PPM(u_a, v_a, hin_a, h_a, uh_a, vh_a, dt, bx0, stencil, x_first, Gcore, G%isd, &
+                      G%ied, GV%Angstrom_H, GV%H_subroundoff, CS, OBC, pbv, uhbt_a=uhbt_a, &
+                      vhbt_a=vhbt_a, visc_rem_u_a=visc_rem_u_a, visc_rem_v_a=visc_rem_v_a, &
+                      u_cor_a=u_cor_a, v_cor_a=v_cor_a, BT_cont=BT_cont_local, du_cor_a=du_cor_a, &
+                      dv_cor_a=dv_cor_a)
 
   call h_a%copy2F(h)
   call uh_a%copy2F(uh)
@@ -179,10 +164,6 @@ subroutine continuity(u, v, hin, h, uh, vh, dt, G, GV, US, CS, OBC, pbv, uhbt, v
   call uh_a%free()
   call vh_a%free()
 
-  call mask2dT_a%free() ; call dy_Cu_a%free() ; call IareaT_a%free() ; call IdxT_a%free()
-  call areaT_a%free() ; call dxT_a%free() ; call mask2dCu_a%free() ; call dxCu_a%free()
-  call dx_Cv_a%free() ; call IdyT_a%free() ; call dyT_a%free() ; call mask2dCv_a%free()
-  call dyCv_a%free()
   call bx0%free()
 
   if (u_cor_a%associated()) call u_cor_a%copy2F(u_cor)
@@ -220,9 +201,8 @@ subroutine continuity_3d_fluxes(u, v, h, uh, vh, dt, G, GV, US, CS, OBC, pbv)
   type(porous_barrier_type), intent(in)  :: pbv !< porous barrier fractional cell metrics
 
   type(RealArray_t) :: u_a, v_a, h_a, uh_a, vh_a
-  type(RealArray_t) :: mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a
-  type(RealArray_t) :: mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, dyCv_a
   type(Box_t) :: bxC
+  type(grid_core_type), pointer :: Gcore ! Persistent containers of heavily used grid fields
 
   call u_a%alloc(lb=LBOUND(u), ub=UBOUND(u), source=u)
   call v_a%alloc(lb=LBOUND(v), ub=UBOUND(v), source=v)
@@ -232,26 +212,10 @@ subroutine continuity_3d_fluxes(u, v, h, uh, vh, dt, G, GV, US, CS, OBC, pbv)
 
   call bxC%safe_alloc(ndims=3)
   call bxC%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  Gcore => grid_core(G)
 
-  call mask2dT_a%alloc(lb=LBOUND(G%mask2dT), ub=UBOUND(G%mask2dT), source=G%mask2dT)
-  call dy_Cu_a%alloc(lb=LBOUND(G%dy_Cu), ub=UBOUND(G%dy_Cu), source=G%dy_Cu)
-  call IareaT_a%alloc(lb=LBOUND(G%IareaT), ub=UBOUND(G%IareaT), source=G%IareaT)
-  call IdxT_a%alloc(lb=LBOUND(G%IdxT), ub=UBOUND(G%IdxT), source=G%IdxT)
-  call areaT_a%alloc(lb=LBOUND(G%areaT), ub=UBOUND(G%areaT), source=G%areaT)
-  call dxT_a%alloc(lb=LBOUND(G%dxT), ub=UBOUND(G%dxT), source=G%dxT)
-  call mask2dCu_a%alloc(lb=LBOUND(G%mask2dCu), ub=UBOUND(G%mask2dCu), source=G%mask2dCu)
-  call dxCu_a%alloc(lb=LBOUND(G%dxCu), ub=UBOUND(G%dxCu), source=G%dxCu)
-  call dx_Cv_a%alloc(lb=LBOUND(G%dx_Cv), ub=UBOUND(G%dx_Cv), source=G%dx_Cv)
-  call IdyT_a%alloc(lb=LBOUND(G%IdyT), ub=UBOUND(G%IdyT), source=G%IdyT)
-  call dyT_a%alloc(lb=LBOUND(G%dyT), ub=UBOUND(G%dyT), source=G%dyT)
-  call mask2dCv_a%alloc(lb=LBOUND(G%mask2dCv), ub=UBOUND(G%mask2dCv), source=G%mask2dCv)
-  call dyCv_a%alloc(lb=LBOUND(G%dyCv), ub=UBOUND(G%dyCv), source=G%dyCv)
-
-  call continuity_PPM_3d_fluxes(u_a, v_a, h_a, uh_a, vh_a, dt, bxC, &
-                                mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a, &
-                                mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, &
-                                dyCv_a, G%isd, G%ied, GV%Angstrom_H, GV%H_subroundoff, &
-                                CS, OBC, pbv)
+  call continuity_PPM_3d_fluxes(u_a, v_a, h_a, uh_a, vh_a, dt, bxC, Gcore, G%isd, G%ied, &
+                                GV%Angstrom_H, GV%H_subroundoff, CS, OBC, pbv)
 
   call uh_a%copy2F(uh)
   call vh_a%copy2F(vh)
@@ -262,10 +226,6 @@ subroutine continuity_3d_fluxes(u, v, h, uh, vh, dt, G, GV, US, CS, OBC, pbv)
   call uh_a%free()
   call vh_a%free()
 
-  call mask2dT_a%free() ; call dy_Cu_a%free() ; call IareaT_a%free() ; call IdxT_a%free()
-  call areaT_a%free() ; call dxT_a%free() ; call mask2dCu_a%free() ; call dxCu_a%free()
-  call dx_Cv_a%free() ; call IdyT_a%free() ; call dyT_a%free() ; call mask2dCv_a%free()
-  call dyCv_a%free()
   call bxC%free()
 
 end subroutine continuity_3d_fluxes
@@ -296,8 +256,8 @@ subroutine continuity_2d_fluxes(u, v, h, uhbt, vhbt, dt, G, GV, US, CS, OBC, pbv
   type(porous_barrier_type), intent(in)  :: pbv !< porous barrier fractional cell metrics
 
   type(RealArray_t) :: u_a, v_a, h_a, uhbt_a, vhbt_a
-  type(RealArray_t) :: mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, dx_Cv_a, IdyT_a
   type(Box_t) :: bxC
+  type(grid_core_type), pointer :: Gcore ! Persistent containers of heavily used grid fields
 
   call u_a%alloc(lb=LBOUND(u), ub=UBOUND(u), source=u)
   call v_a%alloc(lb=LBOUND(v), ub=UBOUND(v), source=v)
@@ -307,17 +267,10 @@ subroutine continuity_2d_fluxes(u, v, h, uhbt, vhbt, dt, G, GV, US, CS, OBC, pbv
 
   call bxC%safe_alloc(ndims=3)
   call bxC%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  Gcore => grid_core(G)
 
-  call mask2dT_a%alloc(lb=LBOUND(G%mask2dT), ub=UBOUND(G%mask2dT), source=G%mask2dT)
-  call dy_Cu_a%alloc(lb=LBOUND(G%dy_Cu), ub=UBOUND(G%dy_Cu), source=G%dy_Cu)
-  call IareaT_a%alloc(lb=LBOUND(G%IareaT), ub=UBOUND(G%IareaT), source=G%IareaT)
-  call IdxT_a%alloc(lb=LBOUND(G%IdxT), ub=UBOUND(G%IdxT), source=G%IdxT)
-  call dx_Cv_a%alloc(lb=LBOUND(G%dx_Cv), ub=UBOUND(G%dx_Cv), source=G%dx_Cv)
-  call IdyT_a%alloc(lb=LBOUND(G%IdyT), ub=UBOUND(G%IdyT), source=G%IdyT)
-
-  call continuity_PPM_2d_fluxes(u_a, v_a, h_a, uhbt_a, vhbt_a, dt, bxC, &
-                                mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, dx_Cv_a, IdyT_a, &
-                                GV%Angstrom_H, CS, OBC, pbv)
+  call continuity_PPM_2d_fluxes(u_a, v_a, h_a, uhbt_a, vhbt_a, dt, bxC, Gcore, GV%Angstrom_H, CS, &
+                                OBC, pbv)
 
   call uhbt_a%copy2F(uhbt)
   call vhbt_a%copy2F(vhbt)
@@ -328,8 +281,6 @@ subroutine continuity_2d_fluxes(u, v, h, uhbt, vhbt, dt, G, GV, US, CS, OBC, pbv
   call uhbt_a%free()
   call vhbt_a%free()
 
-  call mask2dT_a%free() ; call dy_Cu_a%free() ; call IareaT_a%free() ; call IdxT_a%free()
-  call dx_Cv_a%free() ; call IdyT_a%free()
   call bxC%free()
 
 end subroutine continuity_2d_fluxes
@@ -381,9 +332,8 @@ subroutine continuity_adjust_vel(u, v, h, dt, G, GV, US, CS, OBC, pbv, uhbt, vhb
 
   type(RealArray_t) :: u_a, v_a, h_a, uhbt_a, vhbt_a
   type(RealArray_t) :: visc_rem_u_a, visc_rem_v_a
-  type(RealArray_t) :: mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a
-  type(RealArray_t) :: mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, dyCv_a
   type(Box_t) :: bxC
+  type(grid_core_type), pointer :: Gcore ! Persistent containers of heavily used grid fields
 
   call u_a%alloc(lb=LBOUND(u), ub=UBOUND(u), source=u)
   call v_a%alloc(lb=LBOUND(v), ub=UBOUND(v), source=v)
@@ -393,31 +343,15 @@ subroutine continuity_adjust_vel(u, v, h, dt, G, GV, US, CS, OBC, pbv, uhbt, vhb
 
   call bxC%safe_alloc(ndims=3)
   call bxC%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
-
-  call mask2dT_a%alloc(lb=LBOUND(G%mask2dT), ub=UBOUND(G%mask2dT), source=G%mask2dT)
-  call dy_Cu_a%alloc(lb=LBOUND(G%dy_Cu), ub=UBOUND(G%dy_Cu), source=G%dy_Cu)
-  call IareaT_a%alloc(lb=LBOUND(G%IareaT), ub=UBOUND(G%IareaT), source=G%IareaT)
-  call IdxT_a%alloc(lb=LBOUND(G%IdxT), ub=UBOUND(G%IdxT), source=G%IdxT)
-  call areaT_a%alloc(lb=LBOUND(G%areaT), ub=UBOUND(G%areaT), source=G%areaT)
-  call dxT_a%alloc(lb=LBOUND(G%dxT), ub=UBOUND(G%dxT), source=G%dxT)
-  call mask2dCu_a%alloc(lb=LBOUND(G%mask2dCu), ub=UBOUND(G%mask2dCu), source=G%mask2dCu)
-  call dxCu_a%alloc(lb=LBOUND(G%dxCu), ub=UBOUND(G%dxCu), source=G%dxCu)
-  call dx_Cv_a%alloc(lb=LBOUND(G%dx_Cv), ub=UBOUND(G%dx_Cv), source=G%dx_Cv)
-  call IdyT_a%alloc(lb=LBOUND(G%IdyT), ub=UBOUND(G%IdyT), source=G%IdyT)
-  call dyT_a%alloc(lb=LBOUND(G%dyT), ub=UBOUND(G%dyT), source=G%dyT)
-  call mask2dCv_a%alloc(lb=LBOUND(G%mask2dCv), ub=UBOUND(G%mask2dCv), source=G%mask2dCv)
-  call dyCv_a%alloc(lb=LBOUND(G%dyCv), ub=UBOUND(G%dyCv), source=G%dyCv)
+  Gcore => grid_core(G)
 
   if (present(visc_rem_u)) &
     call visc_rem_u_a%alloc(lb=LBOUND(visc_rem_u), ub=UBOUND(visc_rem_u), source=visc_rem_u)
   if (present(visc_rem_v)) &
     call visc_rem_v_a%alloc(lb=LBOUND(visc_rem_v), ub=UBOUND(visc_rem_v), source=visc_rem_v)
 
-  call continuity_PPM_adjust_vel(u_a, v_a, h_a, dt, bxC, &
-                                 mask2dT_a, dy_Cu_a, IareaT_a, IdxT_a, areaT_a, dxT_a, &
-                                 mask2dCu_a, dxCu_a, dx_Cv_a, IdyT_a, dyT_a, mask2dCv_a, &
-                                 dyCv_a, G%isd, G%ied, GV%Angstrom_H, GV%H_subroundoff, &
-                                 CS, OBC, pbv, uhbt_a, vhbt_a, &
+  call continuity_PPM_adjust_vel(u_a, v_a, h_a, dt, bxC, Gcore, G%isd, G%ied, GV%Angstrom_H, &
+                                 GV%H_subroundoff, CS, OBC, pbv, uhbt_a, vhbt_a, &
                                  visc_rem_u_a=visc_rem_u_a, visc_rem_v_a=visc_rem_v_a)
 
   call u_a%copy2F(u)
@@ -430,10 +364,6 @@ subroutine continuity_adjust_vel(u, v, h, dt, G, GV, US, CS, OBC, pbv, uhbt, vhb
   call vhbt_a%free()
   call visc_rem_u_a%free() ; call visc_rem_v_a%free()
 
-  call mask2dT_a%free() ; call dy_Cu_a%free() ; call IareaT_a%free() ; call IdxT_a%free()
-  call areaT_a%free() ; call dxT_a%free() ; call mask2dCu_a%free() ; call dxCu_a%free()
-  call dx_Cv_a%free() ; call IdyT_a%free() ; call dyT_a%free() ; call mask2dCv_a%free()
-  call dyCv_a%free()
   call bxC%free()
 
 end subroutine continuity_adjust_vel
