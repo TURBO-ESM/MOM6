@@ -1,6 +1,6 @@
 ---
 name: convert_optional_args_to_containers
-version: "0.3"
+version: "0.3.2"
 description: Convert only the optional array arguments of a MOM6 subroutine that sits in the middle of a call tree to RealArray_t/IntArray_t containers, leaving its mandatory arguments and every still-raw child subroutine it calls completely untouched. Uses a guarded %view producing a disassociated pointer, forwarded unconditionally to the child's still-raw optional dummy, to avoid the combinatorial if(present(...)) branch trees that a naive Case-A conversion produces. Use this when a full convert_array_containers pass on the subroutine (or its neighbors) isn't wanted yet, or when the branching cost of converting an optional argument bottom-up has already bitten once and you want to fix it by moving the container boundary up past the argument's real point of use instead.
 user-invocable: true
 argument-hint: <work-directory> <function-name> <optional-dummy-name>[,<optional-dummy-name>...] [--enable_git_commit] [--disable_git_commit]
@@ -191,7 +191,7 @@ pass through unchanged everywhere.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version for this whole skill family. If
 missing, add it right after the file's license/header block, before
 `module`; if present, update it in place. Grep-able
@@ -199,7 +199,7 @@ missing, add it right after the file's license/header block, before
 
 ## Hard rules
 
-- Never skip or duplicate the `!!SKILLS: 0.3` marker — add once, update
+- Never skip or duplicate the `!!SKILLS: 0.3.2` marker — add once, update
   in place thereafter.
 - Never touch a child's signature or body — a separate
   `convert_array_containers` invocation if it needs converting too.

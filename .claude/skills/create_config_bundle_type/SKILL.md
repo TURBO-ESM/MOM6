@@ -1,7 +1,7 @@
 ---
 name: create_config_bundle_type
-version: "0.3"
-description: Cluster a private (module-local) control-structure/config derived type's fields — scalars, and already-containerized arrays — into small, purpose-built bind(C)-ready bundle types, nested back into the original type, based on which fields actually travel together across the call tree. Worked example in this codebase: continuity_PPM_CS's 20 individually-flattened fields were clustered into reconstruction_opts_type (upwind_1st/monotonic/simple_2nd) and transport_adjust_opts_type (CFL_limit_adjust/aggress_adjust/vol_CFL/better_iter/use_visc_rem_max/marginal_faces/tol_eta/tol_vel). Use this instead of leaving convert_array_containers's flattening as the end state, and instead of create_shadow_container_type, whenever the type in question is private to the module/call tree being worked on (no shadow-and-copy-back dance needed) rather than shared with code outside it.
+version: "0.3.2"
+description: Cluster a private (module-local) control-structure/config derived type's fields — scalars, and already-containerized arrays — into small, purpose-built bind(C)-ready bundle types, nested back into the original type, based on which fields actually travel together across the call tree. Worked example in this codebase: continuity_PPM_CS's 20 individually-flattened fields were clustered into reconstruction_CS (upwind_1st/monotonic/simple_2nd) and transport_adjust_CS (CFL_limit_adjust/aggress_adjust/vol_CFL/better_iter/use_visc_rem_max/marginal_faces/tol_eta/tol_vel). Use this instead of leaving convert_array_containers's flattening as the end state, and instead of create_shadow_container_type, whenever the type in question is private to the module/call tree being worked on (no shadow-and-copy-back dance needed) rather than shared with code outside it.
 user-invocable: true
 argument-hint: <work-directory> <type-name> [<call-tree-entry-point>] [--enable_git_commit] [--disable_git_commit]
 ---
@@ -70,10 +70,20 @@ anything:
   where it is on the original struct, alongside any other field that
   ends up in no cluster at all.
 
+- **Diagnostic handles** (`id_*` integers passed to `post_data`) — normally
+  excluded by the calling plan: they never cross to C++. But check
+  whether any also **gate computation** inside a kernel (e.g.
+  CorAdCalc's `if (CS%id_CAuS > 0 .or. CS%id_CAvS > 0)` around the Stokes
+  diagnostic loops, and `id_rv`/`id_PV` gating `RV`/`PV`). An excluded
+  gating field stays on the struct, so every leaf that reads it must
+  keep taking the whole struct (Step 6), which keeps that leaf from
+  being bridgeable as-is. Name those leaves and fields in the report,
+  so Phase 3 can pass the gate values as plain arguments instead.
+
 A cluster may freely mix eligible scalars and eligible container fields
 — the converter (below) handles each member's own kind. This is not a
-new mechanism invented for this skill: `reconstruction_opts_to_c`/
-`transport_adjust_opts_to_c` already show the pure-scalar case
+new mechanism invented for this skill: `reconstruction_CS_to_c`/
+`transport_adjust_CS_to_c` (`MOM_continuity_PPM.F90`) already show the pure-scalar case
 (unconditional, direct assignment per field) and `BT_cont_container_to_c`
 already shows the pure-container case (`#ifdef _TIM`-guarded, delegates
 to each field's own `%to_c()`); a mixed cluster's converter is just both
@@ -84,11 +94,21 @@ rules applied per field in the same function.
 Confirm the target type is genuinely private to the call tree you're
 about to touch: grep `use <module>, only : <TypeName>` (and any
 qualified `<module>%<TypeName>` reference) across the whole repo, not
-just the module that defines it. Any hit outside the call tree means
-this skill does not apply — use `create_shadow_container_type` instead.
+just the module that defines it. What disqualifies a type is code
+outside the call tree **accessing its fields**. In that case this skill
+does not apply; use `create_shadow_container_type` instead. Code outside
+the tree that only declares the type and passes it along is fine, if
+the type's components are `private` (`type, public :: X ; private`),
+because restructuring its fields then can't affect that code. So check
+two things:
+1. Do any hits outside the tree reference fields (`<var>%<field>`)?
+2. Are the components private?
+
 This is exactly the check that made `continuity_PPM_CS` eligible here
 while `BT_cont_type` (used directly by `MOM_barotropic.F90` and the
-RK2/RK2b dynamics files) was not.
+RK2/RK2b dynamics files) was not. `CoriolisAdv_CS` is the opaque-holder
+case: the four dynamics drivers declare and pass it but can't touch its
+private fields, so it's eligible.
 
 ## Settle these decisions
 
@@ -112,14 +132,23 @@ RK2/RK2b dynamics files) was not.
    call tree: each of their touched fields is consumed at 1–2 call sites
    with no recurring companion, so neither is a bundling candidate
    there despite both being flattened structs in the same call tree.
-4. **Naming**: `<cluster>_opts_type` / `_C` / `_to_c`, matching the
-   `reconstruction_opts`/`transport_adjust_opts` precedent, unless this
-   codebase's existing naming for the domain suggests otherwise.
+4. **Naming**: follow the in-tree precedent in `MOM_continuity_PPM.F90`:
+   - the bundle type is `<cluster>_CS`, its `bind(C)` mirror
+     `<cluster>_CS_C`, and its converter `<cluster>_CS_to_c`;
+   - it is nested in the parent struct as a member with the same name as
+     its type (`type(reconstruction_CS) :: reconstruction_CS`);
+   - a leaf that takes the bundle names that dummy `CS`, so its body's
+     `CS%<field>` references need no edit.
+
+   Example from CorAdCalc: `Coriolis_scheme_CS` / `Coriolis_scheme_CS_C`
+   / `Coriolis_scheme_CS_to_c`, nested as `CS%Coriolis_scheme_CS`.
+   Deviate only if the codebase's existing naming for the domain says
+   otherwise.
 5. **Stage multi-cluster rollouts.** If more than one cluster is found,
    roll each out as its own atomic pass (every call boundary for that
    cluster's fields must agree at once, so a partial rewrite doesn't
    compile) — mirror the Stage A/Stage B split used for
-   `reconstruction_opts_type`/`transport_adjust_opts_type`.
+   `reconstruction_CS`/`transport_adjust_CS`.
 
 If the user already specified any of these, take their values as-is.
 
@@ -164,30 +193,30 @@ For each cluster, add (in the same module as the original type):
 
 ```fortran
 !> <One-line purpose of this cluster of options>.
-type, public :: <cluster>_opts_type
+type, public :: <cluster>_CS
   <field's own declared type> :: field1 !< <doc, copied from the original struct's field doc>
   ...
-end type <cluster>_opts_type
+end type <cluster>_CS
 
-!> bind(C) mirror of <cluster>_opts_type, field-for-field, same order.
-type, bind(C) :: <cluster>_opts_C
+!> bind(C) mirror of <cluster>_CS, field-for-field, same order.
+type, bind(C) :: <cluster>_CS_C
   <c_kind or _C container-mirror type> :: field1
   ...
-end type <cluster>_opts_C
+end type <cluster>_CS_C
 ```
 
 Then the converter. If every member is a scalar, it is unconditional —
-no infra dependency, matching `reconstruction_opts_to_c`/
-`transport_adjust_opts_to_c`:
+no infra dependency, matching `reconstruction_CS_to_c`/
+`transport_adjust_CS_to_c`:
 
 ```fortran
-!> Converts a <cluster>_opts_type to its bind(C) mirror.
-function <cluster>_opts_to_c(opts) result(cdesc)
-  type(<cluster>_opts_type), intent(in) :: opts
-  type(<cluster>_opts_C) :: cdesc
+!> Converts a <cluster>_CS to its bind(C) mirror.
+function <cluster>_CS_to_c(opts) result(cdesc)
+  type(<cluster>_CS), intent(in) :: opts
+  type(<cluster>_CS_C) :: cdesc
   cdesc%field1 = opts%field1   ! scalar: direct assignment
   ...
-end function <cluster>_opts_to_c
+end function <cluster>_CS_to_c
 ```
 
 If the cluster has at least one container member, guard the whole
@@ -200,10 +229,18 @@ cdesc%field1 = opts%field1        ! scalar: direct assignment
 cdesc%field2 = opts%field2_a%to_c() ! container: delegate
 ```
 
+On the C++ side, a scalar-only `<cluster>_CS_C` needs no marshalling
+helper. The bridge passes it as `const <cluster>_CS_C*`, and the kernel
+reads its fields directly through `const <cluster>_CS_C&`. Its full
+definition lives in the module's kernel header, not in the shared
+`turbotmp_bridge_c_types.h` (TIM `generate_amrex_code` lessons.md §2.2).
+Keep the `bind(C)` mirror's field order and kinds (`c_int`, `c_bool`,
+`c_double`) exactly matching what that header declares.
+
 ### 5. Restructure the original type
 
 Replace each clustered field with one
-`type(<cluster>_opts_type), public :: <cluster>_opts` member per
+`type(<cluster>_CS) :: <cluster>_CS` member per
 cluster. Leave every non-clustered field (pointers, lone scalars from
 Settle-these-decisions item 3) exactly where it is.
 
@@ -217,7 +254,7 @@ one of these; a leaf cannot straddle both for the same type:
   reason to stop (no bind(C) bridge on it now or planned, and nothing
   else forcing individual-field access). This needs **no signature
   change at all** — only a body rename, `<dummy>%<field>` →
-  `<dummy>%<cluster>_opts%<field>` for every clustered field it touches.
+  `<dummy>%<cluster>_CS%<field>` for every clustered field it touches.
   This is Step 5's restructuring alone rippling through; it applies
   identically whether the leaf is the type's own init/accessor routine
   or an arbitrary subroutine three levels down that happened to still
@@ -270,14 +307,15 @@ restoring the bundle field's real name at that call site.
 - Every touched leaf is classified as exactly one of "keeps the whole
   struct" (body rename only) or "stops taking it" (Step 7 dummy-list
   change) — none mixes both for the same type.
-- Line length ≤ 100; `#ifdef`/`#ifndef`/`#if` vs `#endif` depth-tracked
+- Line length within the file's own limit (MOM6 Fortran: 120; don't
+  lengthen an already-over-limit line); `#ifdef`/`#ifndef`/`#if` vs `#endif` depth-tracked
   across the whole file (must never go negative, must end at 0) rather
   than a raw token count.
 - No Fortran compiler locally — report the build as unrun.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version number for this whole skill family,
 not just this one skill (bump every skill file's `version:` field and
 this marker in lockstep when any of them changes in a way that affects
@@ -290,7 +328,7 @@ later, once these markers are no longer useful.
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file this skill touches,
+- Never skip the `!!SKILLS: 0.3.2` marker on a file this skill touches,
   and never add a second marker line if one already exists — update it
   in place instead.
 - Never touch a type that's used outside the call tree being worked on
@@ -330,5 +368,7 @@ commit). Branch name: `claude_<lowercased_type-name>_config_bundle`.
 3. Whether the hot-loop bare-scalar exception was applied, and where.
 4. Which clusters have been rolled out vs remain, if staged.
 5. Any naming inconsistencies fixed along the way.
+5a. Every excluded field that gates computation (Scope), and which leaves
+    it keeps on the whole struct.
 6. Build status — explicitly unrun if no compiler is available.
 7. Whether committed, or the list of modified files for manual commit.

@@ -1,6 +1,6 @@
 ---
 name: create_shadow_container_type
-version: "0.3"
+version: "0.3.2"
 description: Build a container-based shadow of a shared MOM6 derived type (one whose fields are plain allocatable real arrays, but which is also used directly by code outside the call tree being bridged) so that one call tree can become container/bridge-ready without converting the shared type itself. Worked example in this codebase: BT_cont_type is used both by the continuity() call tree (MOM_continuity_PPM.F90) and directly by MOM_barotropic.F90; BT_cont_container_type shadows it inside continuity() only, leaving MOM_barotropic.F90 and MOM_variables.F90's BT_cont_type completely untouched. Use this when convert_array_containers doesn't apply because the type in question is shared outside the subroutine/call-tree being converted, so converting it wholesale would ripple into unrelated code you don't want to touch.
 user-invocable: true
 argument-hint: <work-directory> <shared-type-name> <call-tree-entry-point> [--enable_git_commit] [--disable_git_commit]
@@ -35,6 +35,11 @@ descendant in place of the real type, and copy the results back into
 the real struct before the entry point returns. The real shared type,
 every *other* subsystem that touches it, and every subroutine outside
 the call tree are never touched.
+
+**`ocean_grid_type` is already handled differently:** it is static after init, so its arrays
+have *persistent* copies (`grid_core`/`grid_OBC` in `src/core/MOM_grid_containers.F90`, see
+`array_container_lessons` §5), built once rather than shadowed and copied back per call. Don't
+shadow `G`.
 
 This is a **pilot pattern**, not a one-off — the same technique
 generalizes to any shared type too big or too widely used to convert
@@ -389,7 +394,7 @@ capture/replay run silently drops it.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version number for this whole skill family,
 not just this one skill (bump every skill file's `version:` field and
 this marker in lockstep when any of them changes in a way that affects
@@ -402,7 +407,7 @@ later, once these markers are no longer useful.
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file this skill touches,
+- Never skip the `!!SKILLS: 0.3.2` marker on a file this skill touches,
   and never add a second marker line if one already exists — update it
   in place instead.
 - Never convert the real shared type itself, and never touch any
