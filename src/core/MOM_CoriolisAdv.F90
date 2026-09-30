@@ -193,6 +193,8 @@ subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Wav
   logical :: Stokes_VF
   type(grid_core_type), pointer :: Gcore ! Persistent copies of the core ocean grid fields
   type(grid_OBC_type),  pointer :: Gobc  ! Persistent copies of the ocean grid OBC mask fields
+  type(Box_t) :: bxH0  ! The h-point box of the whole column, [isc:iec, jsc:jec, 1:nz]
+  type(Box_t) :: bxQ0  ! The B-grid-index box of the whole column, [IscB:IecB, JscB:JecB, 1:nz]
 
   call u_a%alloc(lb=LBOUND(u), ub=UBOUND(u), source=u)
   call v_a%alloc(lb=LBOUND(v), ub=UBOUND(v), source=v)
@@ -214,9 +216,14 @@ subroutine CorAdCalc(u, v, h, uh, vh, CAu, CAv, OBC, AD, G, GV, US, CS, pbv, Wav
     Stokes_VF = Waves%Stokes_VF
   endif ; endif
 
-  call CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAuS_a, CAvS_a, OBC, AD, &
-                    G, Gcore, Gobc, GV%ke, GV%H_subroundoff, GV%Angstrom_H, US%m_to_L, &
-                    US%m_s_to_L_T, CS, pbv, Waves, Stokes_VF)
+  call bxH0%safe_alloc(ndims=3) ; call bxQ0%safe_alloc(ndims=3)
+  call bxH0%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  call bxQ0%set(idxS=[G%IscB,G%JscB,1], idxE=[G%IecB,G%JecB,GV%ke])
+
+  call CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAuS_a, &
+                    CAvS_a, OBC, AD, Gcore, Gobc, GV%ke, GV%H_subroundoff, GV%Angstrom_H, &
+                    US%m_to_L, US%m_s_to_L_T, CS, pbv, Waves, Stokes_VF)
+  call bxH0%free() ; call bxQ0%free()
 
   call CorAdv_finalize_diagnostics(RV_a, PV_a, CAuS_a, CAvS_a, Stokes_VF, AD, G, GV%ke, CS)
 
@@ -233,10 +240,15 @@ end subroutine CorAdCalc
 !> The implementation of CorAdCalc (the root of its call tree): sets up the k-invariant fields,
 !! then loops over iteration tiles, calling the setup, the selected scheme and the common terms
 !! for each one.
-subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAuS_a, CAvS_a, OBC, &
-                        AD, G, Gcore, Gobc, nz, H_subroundoff, Angstrom_H, m_to_L, m_s_to_L_T, CS, &
-                        pbv, Waves, Stokes_VF)
-  type(ocean_grid_type),                      intent(in)    :: G  !< Ocean grid structure
+subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAuS_a, &
+                        CAvS_a, OBC, AD, Gcore, Gobc, nz, H_subroundoff, Angstrom_H, m_to_L, &
+                        m_s_to_L_T, CS, pbv, Waves, Stokes_VF)
+  type(Box_t),                                intent(in)    :: bxH0 !< The h-point box of the
+                                                                    !! whole column,
+                                                                    !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),                                intent(in)    :: bxQ0 !< The B-grid-index box of the
+                                                                    !! whole column,
+                                                                    !! [IscB:IecB, JscB:JecB, 1:nz]
   type(grid_core_type),                       intent(in)    :: Gcore !< Persistent copies of the
                                                                      !! core ocean grid fields
   type(grid_OBC_type),                        intent(in)    :: Gobc !< Persistent copies of the
@@ -337,7 +349,7 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
   if (.not.CS%initialized) call MOM_error(FATAL, &
          "MOM_CoriolisAdv: Module must be initialized before it is used.")
 
-  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
+  is = bxH0%idxS(1) ; ie = bxH0%idxE(1) ; js = bxH0%idxS(2) ; je = bxH0%idxE(2)
   nkblock = merge(nz, CS%nkblock, CS%nkblock==0)
   vol_neglect = H_subroundoff * (1e-4 * m_to_L)**2
   area_neglect = (1e-4 * m_to_L)**2
@@ -353,7 +365,8 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
   if (use_weno) then
     Is_q = is - stencil ; Ie_q = ie + stencil - 1 ; Js_q = js - stencil ; Je_q = je + stencil - 1
   else
-    Is_q = G%IscB - 1 ; Ie_q = G%IecB + 1 ; Js_q = G%JscB - 1 ; Je_q = G%JecB + 1
+    Is_q = bxQ0%idxS(1) - 1 ; Ie_q = bxQ0%idxE(1) + 1
+    Js_q = bxQ0%idxS(2) - 1 ; Je_q = bxQ0%idxE(2) + 1
   endif
 
   call Area_q_a%alloc(lb=[u_a%lb(1),v_a%lb(2)], ub=[u_a%ub(1),v_a%ub(2)])
@@ -439,11 +452,15 @@ subroutine CorAdCalc_TR(u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_a, PV_a, CAu
   call bxU%safe_alloc(ndims=3) ; call bxV%safe_alloc(ndims=3)
   do k_start=1,nz,nkblock
     k_end = min(k_start+nkblock-1, nz)
-    call bxH%set(idxS=[G%isc,G%jsc,k_start], idxE=[G%iec,G%jec,k_end])
-    call bxQ%set(idxS=[G%IscB,G%JscB,k_start], idxE=[G%IecB,G%JecB,k_end])
+    call bxH%set(idxS=[bxH0%idxS(1),bxH0%idxS(2),k_start], &
+                 idxE=[bxH0%idxE(1),bxH0%idxE(2),k_end])
+    call bxQ%set(idxS=[bxQ0%idxS(1),bxQ0%idxS(2),k_start], &
+                 idxE=[bxQ0%idxE(1),bxQ0%idxE(2),k_end])
     call bxQs%set(idxS=[Is_q,Js_q,k_start], idxE=[Ie_q,Je_q,k_end])
-    call bxU%set(idxS=[G%IscB,G%jsc,k_start], idxE=[G%IecB,G%jec,k_end])
-    call bxV%set(idxS=[G%isc,G%JscB,k_start], idxE=[G%iec,G%JecB,k_end])
+    call bxU%set(idxS=[bxQ0%idxS(1),bxH0%idxS(2),k_start], &
+                 idxE=[bxQ0%idxE(1),bxH0%idxE(2),k_end])
+    call bxV%set(idxS=[bxH0%idxS(1),bxQ0%idxS(2),k_start], &
+                 idxE=[bxH0%idxE(1),bxQ0%idxE(2),k_end])
 
     call q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
