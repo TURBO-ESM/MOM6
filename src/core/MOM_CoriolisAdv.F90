@@ -450,6 +450,41 @@ subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_
 
   call bxH%safe_alloc(ndims=3) ; call bxQ%safe_alloc(ndims=3)
   call bxU%safe_alloc(ndims=3) ; call bxV%safe_alloc(ndims=3)
+  call q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                 ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call qS_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                  ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call Ih_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call h_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                   ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call abs_vort_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                        ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call q2_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),1], &
+                  ub=[Area_q_a%ub(1),Area_q_a%ub(2),min(nkblock,nz)])
+  call KEx_a%alloc(lb=[u_a%lb(1),u_a%lb(2),1], ub=[u_a%ub(1),u_a%ub(2),min(nkblock,nz)])
+  call uh_center_a%alloc(lb=[u_a%lb(1),u_a%lb(2),1], &
+                         ub=[u_a%ub(1),u_a%ub(2),min(nkblock,nz)])
+  call KE_a%alloc(lb=[Area_h_a%lb(1),Area_h_a%lb(2),1], &
+                  ub=[Area_h_a%ub(1),Area_h_a%ub(2),min(nkblock,nz)])
+  call KEy_a%alloc(lb=[v_a%lb(1),v_a%lb(2),1], ub=[v_a%ub(1),v_a%ub(2),min(nkblock,nz)])
+  call vh_center_a%alloc(lb=[v_a%lb(1),v_a%lb(2),1], &
+                         ub=[v_a%ub(1),v_a%ub(2),min(nkblock,nz)])
+  call q_a%view(q) ; call qS_a%view(qS) ; call Ih_q_a%view(Ih_q)
+  call h_q_a%view(h_q) ; call abs_vort_a%view(abs_vort) ; call q2_a%view(q2)
+  call KEx_a%view(KEx) ; call uh_center_a%view(uh_center) ; call KE_a%view(KE)
+  call KEy_a%view(KEy) ; call vh_center_a%view(vh_center)
+
+  !$omp target enter data map(alloc: abs_vort, q, Ih_q)
+  !$omp target enter data map(alloc: h_q) if (use_weno)
+  !$omp target enter data map(alloc: KE, KEx, KEy)
+  ! TODO: These Stokes_VF fields seem associated with diagnostics
+  !$omp target enter data map(alloc: qS) if (Stokes_VF)
+  !$omp target enter data map(alloc: uh_center, vh_center) &
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
+  !$omp target enter data map(alloc: q2) &
+  !$omp   if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
+
   do k_start=1,nz,nkblock
     k_end = min(k_start+nkblock-1, nz)
     call bxH%set(idxS=[bxH0%idxS(1),bxH0%idxS(2),k_start], &
@@ -462,40 +497,28 @@ subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_
     call bxV%set(idxS=[bxH0%idxS(1),bxQ0%idxS(2),k_start], &
                  idxE=[bxH0%idxE(1),bxQ0%idxE(2),k_end])
 
-    call q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                   ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call qS_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call Ih_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                      ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call h_q_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                     ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call abs_vort_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                          ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call q2_a%alloc(lb=[Area_q_a%lb(1),Area_q_a%lb(2),bxH%idxS(3)], &
-                    ub=[Area_q_a%ub(1),Area_q_a%ub(2),bxH%idxE(3)])
-    call KEx_a%alloc(lb=[u_a%lb(1),u_a%lb(2),bxH%idxS(3)], ub=[u_a%ub(1),u_a%ub(2),bxH%idxE(3)])
-    call uh_center_a%alloc(lb=[u_a%lb(1),u_a%lb(2),bxH%idxS(3)], &
-                           ub=[u_a%ub(1),u_a%ub(2),bxH%idxE(3)])
-    call KE_a%alloc(lb=[Area_h_a%lb(1),Area_h_a%lb(2),bxH%idxS(3)], &
-                    ub=[Area_h_a%ub(1),Area_h_a%ub(2),bxH%idxE(3)])
-    call KEy_a%alloc(lb=[v_a%lb(1),v_a%lb(2),bxH%idxS(3)], ub=[v_a%ub(1),v_a%ub(2),bxH%idxE(3)])
-    call vh_center_a%alloc(lb=[v_a%lb(1),v_a%lb(2),bxH%idxS(3)], &
-                           ub=[v_a%ub(1),v_a%ub(2),bxH%idxE(3)])
+    call q_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                     ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call qS_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                      ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call Ih_q_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                        ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call h_q_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                       ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call abs_vort_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                            ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call q2_a%rebound(lb=[Area_q_a%lb(1),Area_q_a%lb(2),k_start], &
+                      ub=[Area_q_a%ub(1),Area_q_a%ub(2),k_end])
+    call KEx_a%rebound(lb=[u_a%lb(1),u_a%lb(2),k_start], ub=[u_a%ub(1),u_a%ub(2),k_end])
+    call uh_center_a%rebound(lb=[u_a%lb(1),u_a%lb(2),k_start], ub=[u_a%ub(1),u_a%ub(2),k_end])
+    call KE_a%rebound(lb=[Area_h_a%lb(1),Area_h_a%lb(2),k_start], &
+                      ub=[Area_h_a%ub(1),Area_h_a%ub(2),k_end])
+    call KEy_a%rebound(lb=[v_a%lb(1),v_a%lb(2),k_start], ub=[v_a%ub(1),v_a%ub(2),k_end])
+    call vh_center_a%rebound(lb=[v_a%lb(1),v_a%lb(2),k_start], ub=[v_a%ub(1),v_a%ub(2),k_end])
     call q_a%view(q) ; call qS_a%view(qS) ; call Ih_q_a%view(Ih_q)
     call h_q_a%view(h_q) ; call abs_vort_a%view(abs_vort) ; call q2_a%view(q2)
     call KEx_a%view(KEx) ; call uh_center_a%view(uh_center) ; call KE_a%view(KE)
     call KEy_a%view(KEy) ; call vh_center_a%view(vh_center)
-
-    !$omp target enter data map(alloc: abs_vort, q, Ih_q)
-    !$omp target enter data map(alloc: h_q) if (use_weno)
-    !$omp target enter data map(alloc: KE, KEx, KEy)
-    ! TODO: These Stokes_VF fields seem associated with diagnostics
-    !$omp target enter data map(alloc: qS) if (Stokes_VF)
-    !$omp target enter data map(alloc: uh_center, vh_center) &
-    !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
-    !$omp target enter data map(alloc: q2) &
-    !$omp   if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
 
     ! Potential vorticity and the related quantities at q points used by every scheme.
     call CorAdv_setup(bxH, bxQ, bxU, bxV, bxQs, u_a, v_a, h_a, OBC, AD, pbv, Waves, Gcore, &
@@ -529,21 +552,20 @@ subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_
     ! The Stokes-drift diagnostic, bounding, the kinetic energy gradient, and diagnostics.
     call CorAdv_common_terms(bxU, bxV, u_a, v_a, uh_a, vh_a, abs_vort_a, qS_a, q2_a, KEx_a, KEy_a, &
                              Stokes_VF, Gcore, CAu_a, CAv_a, CAuS_a, CAvS_a, AD, CS)
-
-    !$omp target exit data map(delete: abs_vort, q, Ih_q)
-    !$omp target exit data map(delete: h_q) if (use_weno)
-    !$omp target exit data map(delete: KE, KEx, KEy)
-    !$omp target exit data map(delete: qS) if (Stokes_VF)
-    !$omp target exit data map(delete: uh_center, vh_center) &
-    !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
-    !$omp target exit data map(delete: q2) &
-    !$omp     if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
-
-    call q_a%free() ; call qS_a%free() ; call Ih_q_a%free()
-    call h_q_a%free() ; call abs_vort_a%free() ; call q2_a%free()
-    call KEx_a%free() ; call uh_center_a%free() ; call KE_a%free()
-    call KEy_a%free() ; call vh_center_a%free()
   enddo ! end of tile loop.
+  !$omp target exit data map(delete: abs_vort, q, Ih_q)
+  !$omp target exit data map(delete: h_q) if (use_weno)
+  !$omp target exit data map(delete: KE, KEx, KEy)
+  !$omp target exit data map(delete: qS) if (Stokes_VF)
+  !$omp target exit data map(delete: uh_center, vh_center) &
+  !$omp   if (CS%Coriolis_scheme_CS%Coriolis_En_Dis)
+  !$omp target exit data map(delete: q2) &
+  !$omp     if(associated(AD%rv_x_u) .or. associated(AD%rv_x_v))
+
+  call q_a%free() ; call qS_a%free() ; call Ih_q_a%free()
+  call h_q_a%free() ; call abs_vort_a%free() ; call q2_a%free()
+  call KEx_a%free() ; call uh_center_a%free() ; call KE_a%free()
+  call KEy_a%free() ; call vh_center_a%free()
   call bxH%free() ; call bxQ%free() ; call bxQs%free() ; call bxQs_pij%free()
   call bxU%free() ; call bxV%free()
 

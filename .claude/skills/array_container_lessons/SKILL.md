@@ -334,6 +334,25 @@ Deallocates payload plus all three metadata arrays, resets `rank = 0`.
 Every deallocate is guarded by `associated`, so `free` is safe on an
 unallocated or already-freed container, and calling it twice is safe.
 
+### 4.5a `rebound`
+
+```fortran
+subroutine reboundReal(this, lb, ub)      ! also reboundInt, reboundLogical
+  class(RealArray_t), intent(inout) :: this
+  integer,            intent(in)    :: lb(:), ub(:)
+```
+
+Resets `lb`/`ub`/`shape` of an allocated container without reallocating or moving its data.
+- It is FATAL if the container isn't allocated, if the rank differs, or if the new extents hold
+  more elements than were allocated. Shrinking is allowed.
+- Re-`%view` after a rebound: existing pointers keep their old bounds.
+- **Use:** per-tile scratch whose shape is fixed but whose k-bounds move with the tile.
+  Allocate once for the largest tile, then rebound and view inside the tile loop, as
+  `CorAdCalc_TR` does. This replaces an alloc/free per tile.
+- `size(this%data)` can exceed `product(shape)` after a shrink. `copy2F`/`copy2Array`, `%view`
+  and the logical `to_c`/`from_c` all use `shape`, but `write_binary` writes all of `data`. So
+  don't capture a shrunk container.
+
 ### 4.6 `dup` no longer exists
 
 `%dup` was restructured into `%alloc`: `call a%dup(x) ; call

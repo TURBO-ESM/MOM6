@@ -155,6 +155,14 @@ call h_in_a%copy2Array(h)
 Requires the container's shape to be identical across every use —
 confirm this from the declarations, not by assumption.
 
+**Variant: alloc/free inside a loop where only the bounds move.** This is per-tile scratch
+whose shape is fixed but whose index bounds track the tile, e.g. `lb(3) = k_start`.
+- Allocate once before the loop for the largest iteration, then inside the loop call
+  `%rebound(lb=…, ub=…)` and re-`%view` (lessons §4.5a). Free once after the loop.
+- Any `!$omp target enter/exit data` for those arrays moves out of the loop with the
+  alloc/free, **only if the user agrees**; otherwise leave the directives where they are.
+- Worked example: `CorAdCalc_TR`'s 11 tile scratch containers.
+
 ### 3. Two containers are one continuous value — merge them
 
 The deepest form of this pattern, and easiest to miss: if container `A`
