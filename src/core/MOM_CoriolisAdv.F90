@@ -14,7 +14,7 @@ use MOM_diag_mediator, only : post_data, query_averaging_enabled, diag_ctrl
 use MOM_diag_mediator, only : post_product_u, post_product_sum_u
 use MOM_diag_mediator, only : post_product_v, post_product_sum_v
 use MOM_diag_mediator, only : register_diag_field, safe_alloc_ptr, time_type
-use MOM_error_handler, only : MOM_error, MOM_mesg, FATAL, WARNING
+use MOM_error_handler, only : MOM_error, MOM_mesg, FATAL, WARNING, is_root_pe
 use MOM_file_parser,   only : get_param, log_version, param_file_type
 use MOM_grid,          only : ocean_grid_type
 use MOM_grid_containers, only : grid_core_type, grid_OBC_type, grid_core, grid_OBC
@@ -27,13 +27,50 @@ use MOM_unit_scaling,  only : unit_scale_type
 use MOM_variables,     only : accel_diag_ptrs, porous_barrier_type
 use MOM_verticalGrid,  only : verticalGrid_type
 use MOM_wave_interface, only : wave_parameters_CS
-use box_mod,           only : Box_t
+use box_mod,           only : Box_t, Box_C
 use array_mod,         only : RealArray_t, RealArray_C
-use iso_c_binding,     only : c_int, c_bool, c_double
+use iso_c_binding,     only : c_int, c_bool, c_double, c_null_char
+use posix,             only : mkdir_posix
+use turbotmp_helperF,  only : getenv_mode, io_recorder, already_recorded, mark_recorded
+use turbotmp_helperF,  only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
 
 implicit none ; private
 
 public CorAdCalc, CoriolisAdv_init, CoriolisAdv_end, CoriolisAdv_stencil
+
+  !----------------------------------------
+  ! C interface (bridge to C++)
+  !----------------------------------------
+  interface
+    !> Bridge for the gradKE subroutine
+    subroutine turbotmp_gradke_bridge(bxQ, bxU, bxV, u, v, KE, KEx, KEy, Gcore, Gobc, KE_Scheme, &
+                                      KE_use_limiter) bind(C)
+      use iso_c_binding, only : c_int, c_bool
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C, grid_OBC_C
+      implicit none
+      type(Box_C),       intent(in)    :: bxQ   !< The B-grid-index iteration box of this tile
+      type(Box_C),       intent(in)    :: bxU   !< The u-point iteration box of this tile
+      type(Box_C),       intent(in)    :: bxV   !< The v-point iteration box of this tile
+      type(RealArray_C), intent(in)    :: u     !< Zonal velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)    :: v     !< Meridional velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(inout) :: KE    !< Kinetic energy per unit mass [L2 T-2 ~> m2 s-2]
+      type(RealArray_C), intent(inout) :: KEx   !< Zonal acceleration due to kinetic
+                                                !! energy gradient [L T-2 ~> m s-2]
+      type(RealArray_C), intent(inout) :: KEy   !< Meridional acceleration due to kinetic
+                                                !! energy gradient [L T-2 ~> m s-2]
+      type(grid_core_C), intent(in)    :: Gcore !< Persistent copies of the core
+                                                !! ocean grid fields
+      type(grid_OBC_C),  intent(in)    :: Gobc  !< Persistent copies of the ocean
+                                                !! grid OBC mask fields
+      integer(c_int),  intent(in), value :: KE_Scheme !< Selects the discretization
+                                                !! for the kinetic energy: KE_ARAKAWA,
+                                                !! KE_SIMPLE_GUDONOV, KE_GUDONOV or KE_UP3
+      logical(c_bool), intent(in), value :: KE_use_limiter !< If true, use the
+                                                !! Koren limiter for the KE_UP3 scheme
+    end subroutine turbotmp_gradke_bridge
+  end interface
 
 #include <MOM_memory.h>
 
@@ -2199,8 +2236,8 @@ end subroutine CorAdv_finalize_diagnostics
 
 
 !> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile.
-subroutine gradKE(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_Scheme, &
-                  KE_use_limiter)
+subroutine gradKE_fortran(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_Scheme, &
+                           KE_use_limiter)
   type(grid_core_type),                       intent(in)  :: Gcore !< Persistent copies of the core
                                                                    !! ocean grid fields
   type(grid_OBC_type),                        intent(in)  :: Gobc !< Persistent copies of the ocean
@@ -2379,6 +2416,107 @@ subroutine gradKE(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_S
     KEy(i,J,k) = (KE(i,j+1,k) - KE(i,j,k)) * IdyCv_OBCmask(i,J)
   enddo
   call bxQ_pij%free()
+end subroutine gradKE_fortran
+
+!> Calculates the acceleration due to the gradient of kinetic energy over one iteration tile,
+!! with the Fortran implementation, a capture of its inputs and outputs, or the C++/AMReX
+!! bridge, as selected by the GRADKE_MODE environment variable.
+subroutine gradKE(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_Scheme, &
+                  KE_use_limiter)
+  type(grid_core_type),                       intent(in)  :: Gcore !< Persistent copies of the core
+                                                                   !! ocean grid fields
+  type(grid_OBC_type),                        intent(in)  :: Gobc !< Persistent copies of the ocean
+                                                                  !! grid OBC mask fields
+  type(Box_t),                                intent(in)  :: bxQ !< The B-grid-index iteration box of
+                                                                 !! this tile, [IscB:IecB, JscB:JecB, ksc:kec]
+  type(Box_t),                   intent(in)  :: bxU !< The u-point iteration box of this tile,
+                                                    !! [IscB:IecB, jsc:jec, ksc:kec]
+  type(Box_t),                   intent(in)  :: bxV !< The v-point iteration box of this tile,
+                                                    !! [isc:iec, JscB:JecB, ksc:kec]
+  type(RealArray_t), intent(in)    :: u_a   !< Zonal velocity [L T-1 ~> m s-1]
+  type(RealArray_t), intent(in)    :: v_a   !< Meridional velocity [L T-1 ~> m s-1]
+  type(RealArray_t), intent(inout) :: KE_a  !< Kinetic energy per unit mass [L2 T-2 ~> m2 s-2]
+  type(RealArray_t), intent(inout) :: KEx_a !< Zonal acceleration due to kinetic
+                                            !! energy gradient [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: KEy_a !< Meridional acceleration due to kinetic
+                                            !! energy gradient [L T-2 ~> m s-2]
+  integer,                                    intent(in)  :: KE_Scheme !< Selects the discretization
+                                                   !! for the kinetic energy: KE_ARAKAWA,
+                                                   !! KE_SIMPLE_GUDONOV, KE_GUDONOV or KE_UP3
+  logical,                                    intent(in)  :: KE_use_limiter !< If true, use the
+                                                   !! Koren limiter for the KE_UP3 scheme
+  ! Local variables
+  integer            :: mode, rc
+  type(Box_C)        :: bxQ_c, bxU_c, bxV_c
+  type(RealArray_C)  :: u_c, v_c, KE_c, KEx_c, KEy_c
+  integer(c_int)     :: KE_Scheme_c
+  logical(c_bool)    :: KE_use_limiter_c
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+
+  kernel = "gradke"
+  mode = getenv_mode("GRADKE_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxQ",            bxQ)
+        call rec%add("_bxU",            bxU)
+        call rec%add("_bxV",            bxV)
+        call rec%add("_u",              u_a)
+        call rec%add("_v",              v_a)
+        call rec%add("_KE_before",      KE_a)
+        call rec%add("_KEx_before",     KEx_a)
+        call rec%add("_KEy_before",     KEy_a)
+        call rec%add("_areaCu",         Gcore%areaCu)
+        call rec%add("_areaCv",         Gcore%areaCv)
+        call rec%add("_IareaT",         Gcore%IareaT)
+        call rec%add("_mask2dCu",       Gcore%mask2dCu)
+        call rec%add("_mask2dCv",       Gcore%mask2dCv)
+        call rec%add("_IdxCu_OBCmask",  Gobc%IdxCu_OBCmask)
+        call rec%add("_IdyCv_OBCmask",  Gobc%IdyCv_OBCmask)
+        call rec%add("_KE_Scheme",      KE_Scheme)
+        call rec%add("_KE_use_limiter", KE_use_limiter)
+      endif
+
+      call gradKE_fortran(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_Scheme, &
+                          KE_use_limiter)
+
+      if (capture) then
+        call rec%add("_KE_after",  KE_a)
+        call rec%add("_KEx_after", KEx_a)
+        call rec%add("_KEy_after", KEy_a)
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxQ_c = bxQ%to_c() ; bxU_c = bxU%to_c() ; bxV_c = bxV%to_c()
+      u_c   = u_a%to_c() ; v_c = v_a%to_c()
+      KE_c  = KE_a%to_c() ; KEx_c = KEx_a%to_c() ; KEy_c = KEy_a%to_c()
+      KE_Scheme_c      = KE_Scheme
+      KE_use_limiter_c = KE_use_limiter
+      call turbotmp_gradke_bridge(bxQ_c, bxU_c, bxV_c, u_c, v_c, KE_c, KEx_c, KEy_c, Gcore%C, &
+                                  Gobc%C, KE_Scheme_c, KE_use_limiter_c)
+#endif
+
+    case default
+      call gradKE_fortran(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_Scheme, &
+                          KE_use_limiter)
+
+  end select
+
 end subroutine gradKE
 
 !> Reconstruct the scalar (e.g., pv, vorticity) onto point i-1/2 using a third-order upwind scheme
