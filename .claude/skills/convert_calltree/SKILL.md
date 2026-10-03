@@ -1,6 +1,6 @@
 ---
 name: convert_calltree
-version: "0.3"
+version: "0.3.2"
 description: Given a call-tree entry point (a subroutine whose external signature must stay fixed, like continuity()), survey every derived type and array/optional argument reachable beneath it, classify each against the existing container/bridge-readiness skills, get a human decision wherever a fixed rule can't resolve one, record the plan, then execute it end to end. Use this instead of re-deriving the survey-and-decide process by hand for each new entry point.
 user-invocable: true
 argument-hint: <work-directory> <entry-point-name> [--enable_git_commit] [--disable_git_commit]
@@ -99,6 +99,15 @@ edits it, never the implementation/`_TR` subroutine.
 1d. Which Scope-section case applies (1/2/3). Record the tree's actual
     root name, and whether Phase 2 must author a wrapper (Cases 2/3)
     and/or a rename (Case 3 only).
+1e. Every runtime option (`get_param` flag, scheme selector, block
+    size) that selects a different code path inside the tree, and
+    which of those paths the standard test cases actually exercise.
+    The unexercised ones become the plan's list of override runs for
+    bit-for-bit checks (Step 5). Example: CorAdCalc's `double_gyre`
+    only runs `SADOURNY75_ENERGY` + `KE_ARAKAWA`. The other 8
+    `CORIOLIS_SCHEME` values, `KE_UP3` (with and without its limiter),
+    `BOUND_CORIOLIS`, `CORIOLIS_EN_DIS`, `CORIOLIS_ADV_NKBLOCK` and
+    symmetric memory all need explicit `MOM_override` runs.
 
 ### Step 2. Classify each target against fixed rules
 
@@ -110,7 +119,33 @@ edits it, never the implementation/`_TR` subroutine.
 - A private, scalar-or-container-field control structure whose fields
   recur together across signatures → `create_config_bundle_type`.
 - A struct used elsewhere in the repo outside this tree →
-  `create_shadow_container_type`, not a wholesale conversion.
+  `create_shadow_container_type`, not a wholesale conversion. "Used"
+  means its *fields* are accessed outside the tree. A type with
+  `private` components that outside code only declares and forwards
+  (e.g. `CoriolisAdv_CS`, held by the dynamics drivers) is private to
+  the tree.
+- **`G` (`ocean_grid_type`) → fixed classification, no Step 3 measurement.**
+  - Grid arrays come from the persistent `grid_core` / `grid_OBC` singletons
+    (`src/core/MOM_grid_containers.F90`). The cap fetches them with `grid_core(G)` /
+    `grid_OBC(G)` and passes `Gcore`/`Gobc` down (`convert_array_containers` Step 2b).
+  - Grid index ranges reach the tree root as whole-column boxes that the cap builds from `G`,
+    e.g. CorAdCalc's `bxH0 = [isc:iec, jsc:jec, 1:nz]` and
+    `bxQ0 = [IscB:IecB, JscB:JecB, 1:nz]`. Staggered boxes are combined from their i/j ranges,
+    never grown across staggerings.
+  - `G` then stays only in the cap and in Fortran-only helpers the cap calls (e.g. diagnostics
+    posting).
+  - A field the tree needs that is in neither structure goes to the user.
+- A **per-point kernel**: a `pure`/`elemental` procedure called once
+  per grid point from inside a loop, taking scalars or fixed-size
+  stencil arrays (`q4(4)`, `h8(8)`), never grid-shaped arrays (e.g.
+  CorAdCalc's 23 WENO/UP3 helpers, continuity's `flux_elem`) → **not a
+  container target and not a bridge target.** In Phase 3 it becomes an
+  `AMREX_GPU_DEVICE AMREX_FORCE_INLINE` device primitive in the owning
+  kernel's `<module>_kernel.hpp` (TIM `generate_amrex_code`, pointwise
+  device primitive tier), called from inside that kernel's
+  `ParallelFor`. A `bind(C)` call per grid point would be prohibitively
+  slow. Leave it out of the Phase 3 wave computation; the box-level
+  subroutine that calls it is the bridge target.
 
 ### Step 3. Quantify and decide what Step 2 couldn't resolve
 
@@ -132,6 +167,25 @@ its settings (field lists, "leave alone" plus its grep confirmation,
 "shared with `<X>`" flags), and the execution order below. This file is
 what makes the campaign resumable without re-running Step 3, and what
 Phase 2 and Phase 3 read.
+
+**Record the surveyed base first:** the repo, branch and commit the
+survey was done against, at the top of the plan. Every line number
+and structural claim in the plan is only valid for that commit. (The
+first CorAdCalc plan was surveyed against an older pinned commit, and
+its loop-structure decisions turned out to be wrong for
+`dev/turbo-debug`, which had since been rewritten.) Also record Step
+1e's override-run list.
+
+**Structural restructuring belongs in Stage 1.** If Phase 1 decides the
+tree must be restructured before containerization, record each change
+as an ordered Stage 1 sub-step, each its own bit-for-bit checkpoint.
+Examples: splitting a dispatch body into per-scheme subroutines;
+replacing an in-kernel block loop with box/tile iteration; making a
+per-point helper family `pure` and its caller loops `do concurrent`.
+CorAdCalc ran 1a+1b (rename + wrapper, then box conversion with a
+per-tile body subroutine), 1c (per-scheme split) and 1d
+(`pure`/`do concurrent`). Put the Case-3 rename + wrapper (Step 5a) in
+the first sub-step.
 
 **Phase 2 execution order.** Each position is forced by some sub-
 skill's own precondition or direction rule, not chosen arbitrarily;
@@ -167,10 +221,17 @@ silently.
    `bind(C)` boundary, ahead of Phase 3 bridging that leaf. Precondition:
    already a container (item 4).
 9. **`hoist_container_marshalling`**, once, at the tree's root, last.
+10. **`convert_loops_to_box_iterators`**, once the tree is stable and
+    before Phase 3. It turns every scalar-range `do concurrent` into a
+    loop over a core or derived `Box_t`, so each maps one-to-one onto a
+    `ParallelFor`. Stage it by core box, one bit-for-bit checkpoint each
+    (CorAdCalc steps 9c–9e).
 
 **Phase 3 execution order.** Not a fixed list — computed from Step 1b's
 call graph, restricted to every subroutine in the tree except the
-wrapper (which never bridges): a subroutine is ready to bridge once
+wrapper (which never bridges) and the per-point kernels (Step 2, which
+become device primitives rather than bridges; a subroutine calling only
+per-point kernels counts as a leaf): a subroutine is ready to bridge once
 every in-tree callee it still calls is already bridged, so leaves go
 first and the tree's root goes last. Record the computed wave order
 (the ready-together groups) in the plan; Phase 3 (Step 7) reads it.
@@ -185,7 +246,24 @@ checked out once before Stage 1 (confirm the tree is clean first). Pass
 — this skill's Step 5 is the only thing that commits, so the run lands
 on one branch, not one per sibling.
 
-For each of the 9 stages (Step 4's Phase 2 order), in sequence:
+**Before Stage 1 (and when resuming): check the plan is still current.**
+Compare the plan's recorded base commit with the branch you are about
+to change. If they differ, spot-check the plan's line anchors and
+structural claims (loop structure, dispatch shape, signatures) against
+the current source. If any no longer hold, return to Phase 1 for the
+affected sections before executing anything.
+
+**Execute the plan's decisions; don't re-ask them.** For each target,
+read its recorded decision first (skill, settings, exclusions,
+privacy/sharing status). Ask the user only about what the plan
+explicitly left to the sub-skill, and apply that sub-skill's own rules
+before asking. For example, CorAdCalc's plan fixed `CoriolisAdv_CS`'s
+privacy, field scope and exclusions, and left only the exact
+clustering to `create_config_bundle_type`. That skill's usage trace
+settles the clustering, so no further question was needed.
+
+For each of the 9 stages (Step 4's Phase 2 order, including any
+Stage 1 sub-steps as separate checkpoints), in sequence:
 
 1. **Do the work** — author code directly (Stage 1) or invoke every
    sibling skill the stage's targets are recorded against, each with
@@ -194,15 +272,31 @@ For each of the 9 stages (Step 4's Phase 2 order), in sequence:
 2. **Verify** — every invoked skill's own Verify section, plus this
    skill's Step 6 checks scoped to just this stage's files (the
    full-tree sweep is Stage 9's job). If verification finds a problem,
-   fix it before committing.
-3. **Commit** onto the branch, message naming the stage and what ran.
-4. **Push**, then check CI (confirm how this repo's CI is wired; don't
-   assume). No local compiler exists here, so this is the first real
-   build check the stage gets.
-5. **Stop and report** — stage, commit, CI status — then wait. Never
-   start the next stage in the same turn, and never proceed past a
-   failed stage or an unresolved verification problem; surface it and
-   let the user decide.
+   fix it before handing off. Run scripted static checks. A by-eye read
+   is not enough:
+   - every changed subroutine's arguments are all declared, with no
+     undeclared uses;
+   - no case-insensitive duplicate names (Fortran ignores case: a new
+     `ke` clashes with an existing `KE`);
+   - every call's argument count and order match its subroutine;
+   - every executable line of moved code is present exactly once.
+3. **Build and bit-for-bit test.** Build wherever a compiler is
+   available, or hand the build to the user. Never assume one is
+   missing, and never call an unrun build passed. Every stage must be
+   bit-for-bit identical to the previous stage's output: the default
+   test cases, plus the Step 1e override runs covering the code paths
+   this stage touched. Name those runs explicitly in the hand-off,
+   since the default cases may exercise only one path.
+4. **Commit and push** onto the branch, message naming the stage and
+   what ran, if commit gating (below) allows. Otherwise hand the
+   uncommitted diff to the user, who commits and pushes. Then check CI
+   (confirm how this repo's CI is wired; don't assume). CI does not
+   cover GPU offload paths, so say so whenever a stage changes
+   OpenMP-offload or `do concurrent` behaviour.
+5. **Stop and report** — stage, commit (or "uncommitted, for the
+   user"), build/bit-for-bit/CI status — then wait. Never start the next
+   stage in the same turn, and never proceed past a failed stage or an
+   unresolved verification problem; surface it and let the user decide.
 
 If a stage surfaces a target Phase 1 didn't anticipate, stop and return
 to Phase 1 for it rather than guessing.
@@ -211,8 +305,15 @@ to Phase 1 for it rather than guessing.
 commit skipped. Case 2 → author the wrapper under the entry point's
 name, calling the implementation's existing name. Case 3 → rename the
 implementation to `_TR` first, then author the wrapper. (See Scope for
-what each case means.) This is the one piece of code this skill authors
-itself rather than dispatching to a sibling.
+what each case means.) Plus any structural-restructuring sub-steps the
+plan recorded for Stage 1 (Step 4), each its own checkpoint. These are
+the only pieces of code this skill authors itself rather than
+dispatching to a sibling. When a restructuring moves code between
+subroutines, copy each executable line verbatim and prove it by script.
+Only dispatch lines (`if`/`elseif` chains replaced by a `select case`)
+and index-translation lines may change. Record the as-built result in
+the plan, including any deviation from what the plan anticipated and
+why.
 
 ### Step 6. Whole-tree verification (Stage 9)
 
@@ -259,7 +360,8 @@ callees are already bridged), in sequence:
    no AMReX C++ implementation exists yet (that's a separate, later
    skill's job — see Step 8).
 3. **Commit** onto the branch, message naming the wave and which
-   subroutines it bridged.
+   subroutines it bridged, if commit gating allows. Otherwise hand the
+   diff to the user (as in Step 5).
 4. **Push**, then check CI.
 5. **Stop and report** — wave, commit, CI status — then wait. Same
    rules as Phase 2's Step 5: never start the next wave in the same
@@ -276,22 +378,35 @@ has a `_fortran`/shim/`bind(C)` triple, the wrapper still has none, and
 every shim's public signature is unchanged from what Phase 2 left it
 (bridging must not alter a signature — only rename and wrap). Report
 the AMReX side (the C++ implementation behind each `bind(C)` interface)
-as the explicit next deliverable this skill does not produce.
+as the explicit next deliverable this skill does not produce. That is
+TIM's `generate_amrex_code` skill, one invocation per bridged
+subroutine, with `generate_amrex_unit_test` for its tests. List the
+per-point kernels (Step 2) each bridged kernel calls, since
+`generate_amrex_code` ports them as device primitives in the same
+invocation rather than as bridges of their own. Also check the TIM
+checkout is recent enough for the bridge API the skills describe: for
+example, `turbotmp::make_array4` taking the array's own `lb`, and
+`IntA4Box` for `LogicalArray_C`.
 
 ## Versioning marker
 
 Every Fortran file this skill creates or modifies — directly (Step 5a)
 or via an invoked sibling, in Phase 2 or Phase 3 — gets a
-`!!SKILLS: 0.3` marker line, the shared version for this whole skill
+`!!SKILLS: 0.3.2` marker line, the shared version for this whole skill
 family. Deliberately grep-able (`grep -rn "!!SKILLS:"`) and meant to be
 stripped later.
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file Step 5a edits directly.
+- Never skip the `!!SKILLS: 0.3.2` marker on a file Step 5a edits directly.
 - Never skip the shared-descendant check (1c).
 - Never let Phase 2 or Phase 3 resolve a judgment call Phase 1 didn't
   record — return to Phase 1 instead.
+- Never re-ask a decision Phase 1 already recorded; read the plan
+  first (Step 5).
+- Never execute against a plan whose recorded base commit no longer
+  matches the source it describes, without first re-checking it (Step 5).
+- Never schedule a per-point kernel (Step 2) as a bridge target.
 - Never bypass an invoked sibling's own hard rules or preconditions —
   this skill only decides *which* skill and *when*, never *how*.
 - Never default an ambiguous classification (Step 3) silently.
@@ -322,14 +437,20 @@ Whether either phase commits/pushes at all follows the usual chain:
 itself, else `~/.claude/preferences.json`'s `git_commit_and_push` key.
 Once committing, every invoked sibling still gets `--disable_git_commit`
 regardless (Hard rules). Applies to Phase 2/3 only — Phase 1 produces a
-plan file, not code changes.
+plan file, not code changes. A user's instruction during the session
+(e.g. "don't commit, that's my job") overrides both and means manual
+for the rest of the campaign: leave every stage's changes uncommitted,
+report `git diff --stat`, and let the user build, test, commit and
+push before the next stage starts.
 
 ## Output to the user on success
 
 **Phase 1:** the plan file path, and a summary table (target → skill →
 decision) for review before Phase 2 runs.
-**Phase 2, per stage:** the stage number, what ran, the commit hash, CI
-status — then stop.
+**Phase 2, per stage:** the stage number, what ran, the commit hash (or
+"uncommitted" plus `git diff --stat`, under manual commit gating), the
+build/bit-for-bit status with the override runs it needs, and CI status.
+Then stop.
 **Phase 2, after Stage 9:** Step 6's verification results, confirmation
 the entry point's signature is unchanged, and a rollup of all 9 stages'
 commits.

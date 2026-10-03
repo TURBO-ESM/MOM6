@@ -44,6 +44,7 @@ module array_mod
    contains
      procedure :: allocReal                    !< Allocate memory in container
      procedure :: freeReal                     !< Deallocates memory from a container
+     procedure :: rebound => reboundReal       !< Change the bounds without reallocating
      procedure :: associated => isAssociatedReal !< True if the container holds allocated data
      procedure :: viewReal1D, viewReal2D, &    !< Associates a Fortran pointer to an array container
                   viewReal3D, viewReal4D
@@ -85,6 +86,7 @@ module array_mod
    contains
      procedure :: allocInt                   !< Allocates  memory in container
      procedure :: freeInt                    !< Deallocates memory from a container
+     procedure :: rebound => reboundInt      !< Change the bounds without reallocating
      procedure :: associated => isAssociatedInt !< True if the container holds allocated data
      procedure ::  viewInt1D,  viewInt2D, &   !< Associates a Fortran pointer to an array container
                    viewInt3D,  viewInt4D
@@ -123,6 +125,7 @@ module array_mod
    contains
      procedure :: allocLogical                   !< Allocates memory in container
      procedure :: freeLogical                    !< Deallocates memory from a container
+     procedure :: rebound => reboundLogical      !< Change the bounds without reallocating
      procedure :: associated => isAssociatedLogical !< True if the container holds allocated data
      procedure ::  viewLogical1D,  viewLogical2D, &   !< Associates a Fortran pointer to an array container
                    viewLogical3D,  viewLogical4D
@@ -931,6 +934,27 @@ subroutine freeReal(this)
   this%rank = 0
 end subroutine freeReal
 
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundReal(this, lb, ub)
+  class(RealArray_t), intent(inout) :: this  !< The array container to rebound
+  integer,            intent(in)    :: lb(:) !< New lower bounds
+  integer,            intent(in)    :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundReal: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundReal: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundReal: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundReal: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundReal
+
 subroutine freeInt(this)
   class(IntArray_t), intent(inout) :: this  !< The array container to deallocate
 
@@ -941,6 +965,27 @@ subroutine freeInt(this)
   this%rank = 0
 end subroutine freeInt
 
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundInt(this, lb, ub)
+  class(IntArray_t), intent(inout) :: this  !< The array container to rebound
+  integer, intent(in) :: lb(:) !< New lower bounds
+  integer, intent(in) :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundInt: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundInt: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundInt: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundInt: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundInt
+
 subroutine freeLogical(this)
   class(LogicalArray_t), intent(inout) :: this  !< The array container to deallocate
 
@@ -950,6 +995,27 @@ subroutine freeLogical(this)
   if (allocated(this%ub))    deallocate(this%ub)
   this%rank = 0
 end subroutine freeLogical
+
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundLogical(this, lb, ub)
+  class(LogicalArray_t), intent(inout) :: this  !< The array container to rebound
+  integer, intent(in) :: lb(:) !< New lower bounds
+  integer, intent(in) :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundLogical: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundLogical: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundLogical: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundLogical: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundLogical
 
 pure function isAssociatedReal(this) result(is_assoc)
   class(RealArray_t), intent(in) :: this  !< The array container to query
