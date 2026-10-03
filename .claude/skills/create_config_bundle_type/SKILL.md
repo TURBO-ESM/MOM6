@@ -79,6 +79,11 @@ anything:
   keep taking the whole struct (Step 6), which keeps that leaf from
   being bridgeable as-is. Name those leaves and fields in the report,
   so Phase 3 can pass the gate values as plain arguments instead.
+  Or, as CorAdCalc did (`CorAdv_opts_CS`), make each gate a logical
+  member of the bundle (`do_CAS_diag`, `do_RV_diag`, `do_PV_diag`). Set
+  it once at the end of init, after the diagnostics are registered, from
+  the same test (`(CS%id_CAuS > 0) .or. (CS%id_CAvS > 0)`). The `id_*`
+  handles stay on the struct for `post_data`.
 
 A cluster may freely mix eligible scalars and eligible container fields
 — the converter (below) handles each member's own kind. This is not a
