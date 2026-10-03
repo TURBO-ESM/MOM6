@@ -335,7 +335,6 @@ subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_
                         ! [Is_q:Ie_q, Js_q:Je_q, k_start:k_end]
   type(Box_t) :: bxQs_pij ! bxQs grown by one point at the end in i and j, before the tile loop,
                          ! [Is_q:Ie_q+1, Js_q:Je_q+1, 1:nz]
-  type(Box_t) :: bxt    ! A temporary iteration box
   integer :: i, j, n, is, ie, js, je, nkblock, k_start, k_end
   integer :: Is_q, Ie_q, Js_q, Je_q  ! The scheme-dependent range of values at which vorticity is set.
   logical :: use_weno   ! True if using one of the WENO schemes
@@ -377,7 +376,7 @@ subroutine CorAdCalc_TR(bxH0, bxQ0, u_a, v_a, h_a, uh_a, vh_a, CAu_a, CAv_a, RV_
 
   call bxQs%safe_alloc(ndims=3)
   call bxQs%set(idxS=[Is_q,Js_q,1], idxE=[Ie_q,Je_q,nz])
-  bxt = bxQs%growHi(dim=1, n=1) ; bxQs_pij = bxt%growHi(dim=2, n=1) ; call bxt%free()
+  bxQs_pij = bxQs%growBy(lo=[0,0,0], hi=[1,1,0])
 
   !$omp target enter data map(alloc: Area_h, Area_q)
 
@@ -650,7 +649,6 @@ subroutine CorAdv_setup(bxH, bxQ, bxU, bxV, bxQs, u_a, v_a, h_a, OBC, AD, pbv, W
                           ! [Is_q:Ie_q+1, Js_q:Je_q, ksc:kec]
   type(Box_t) :: bxQs_pj  ! bxQs grown by one point at the end in j,
                           ! [Is_q:Ie_q, Js_q:Je_q+1, ksc:kec]
-  type(Box_t) :: bxt   ! A temporary iteration box
   type(Box_t) :: bxUx  ! bxU grown by one point at the end in i and the start in j,
                        ! [IscB:IecB+1, jsc-1:jec, ksc:kec]
   type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
@@ -691,10 +689,10 @@ subroutine CorAdv_setup(bxH, bxQ, bxU, bxV, bxQs, u_a, v_a, h_a, OBC, AD, pbv, W
   Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
   ksc = bxH%idxS(3) ; kec = bxH%idxE(3)
   Is_q = bxQs%idxS(1) ; Ie_q = bxQs%idxE(1) ; Js_q = bxQs%idxS(2) ; Je_q = bxQs%idxE(2)
-  bxt = bxU%growHi(dim=1, n=1) ; bxUx = bxt%growLo(dim=2, n=1) ; call bxt%free()
-  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
-  bxt = bxH%growLo(dim=1, n=1) ; bxH_mij = bxt%growLo(dim=2, n=1) ; call bxt%free()
-  bxt = bxQ%grow(dim=1, n=1) ; bxQ_gij = bxt%grow(dim=2, n=1) ; call bxt%free()
+  bxUx = bxU%growBy(lo=[0,1,0], hi=[1,0,0])
+  bxVx = bxV%growBy(lo=[1,0,0], hi=[0,1,0])
+  bxH_mij = bxH%growBy(lo=[1,1,0], hi=[0,0,0])
+  bxQ_gij = bxQ%growBy(lo=[1,1,0], hi=[1,1,0])
   bxQs_pi = bxQs%growHi(dim=1, n=1)
   bxQs_pj = bxQs%growHi(dim=2, n=1)
 
@@ -1038,7 +1036,6 @@ subroutine CorAdv_sadourny(bxH, bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, uh_center_a
   type(Coriolis_scheme_CS), intent(in)  :: CS  !< Options selecting the Coriolis discretization
 
   ! Local variables
-  type(Box_t) :: bxt   ! A temporary iteration box
   type(Box_t) :: bxUx  ! bxU grown by one point at the end in i and the start in j,
                        ! [IscB:IecB+1, jsc-1:jec, ksc:kec]
   type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
@@ -1062,8 +1059,8 @@ subroutine CorAdv_sadourny(bxH, bxU, bxV, u_a, v_a, uh_a, vh_a, q_a, uh_center_a
   call Gcore%dy_Cu%view(dy_Cu) ; call Gcore%dx_Cv%view(dx_Cv) ; call Gcore%IdxCu%view(IdxCu)
   call Gcore%IdyCv%view(IdyCv)
 
-  bxt = bxU%growHi(dim=1, n=1) ; bxUx = bxt%growLo(dim=2, n=1) ; call bxt%free()
-  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
+  bxUx = bxU%growBy(lo=[0,1,0], hi=[1,0,0])
+  bxVx = bxV%growBy(lo=[1,0,0], hi=[0,1,0])
 
   ! TODO: May also need SADOURNEY75_ENERGY
   !$omp target enter data map(alloc: uh_min, vh_min) if (CS%Coriolis_En_Dis)
@@ -1251,7 +1248,6 @@ subroutine CorAdv_arakawa(bxH, bxQ, bxU, bxV, uh_a, vh_a, q_a, Ih_q_a, Fe_m2, ra
                           ! [IscB:IecB+1, JscB:JecB+1, ksc:kec]
   type(Box_t) :: bxQ_pj   ! bxQ grown by one point at the end in j,
                           ! [IscB:IecB, JscB:JecB+1, ksc:kec]
-  type(Box_t) :: bxt   ! A temporary iteration box
   type(Box_t) :: bxVx  ! bxV grown by one point at the start in i and the end in j,
                        ! [isc-1:iec, JscB:JecB+1, ksc:kec]
   real, dimension(:,:,:), contiguous, pointer :: uh, vh, q, Ih_q, CAu, CAv
@@ -1280,8 +1276,8 @@ subroutine CorAdv_arakawa(bxH, bxQ, bxU, bxV, uh_a, vh_a, q_a, Ih_q_a, Fe_m2, ra
   call Ih_q_a%view(Ih_q) ; call CAu_a%view(CAu) ; call CAv_a%view(CAv)
   call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
 
-  bxt = bxV%growLo(dim=1, n=1) ; bxVx = bxt%growHi(dim=2, n=1) ; call bxt%free()
-  bxt = bxQ%growHi(dim=1, n=1) ; bxQ_pij = bxt%growHi(dim=2, n=1) ; call bxt%free()
+  bxVx = bxV%growBy(lo=[1,0,0], hi=[0,1,0])
+  bxQ_pij = bxQ%growBy(lo=[0,0,0], hi=[1,1,0])
   bxQ_pj = bxQ%growHi(dim=2, n=1)
 
   !$omp target enter data map(alloc: a, b, c, d, ep_u, ep_v)
@@ -2080,7 +2076,6 @@ subroutine gradKE(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_S
   logical,                                    intent(in)  :: KE_use_limiter !< If true, use the
                                                    !! Koren limiter for the KE_UP3 scheme
   ! Local variables
-  type(Box_t) :: bxt   ! A temporary iteration box
   type(Box_t) :: bxQ_pij  ! bxQ grown by one point at the end in i and j,
                           ! [IscB:IecB+1, JscB:JecB+1, ksc:kec]
   real, dimension(:,:,:), contiguous, pointer :: u, v, KE, KEx, KEy
@@ -2099,7 +2094,7 @@ subroutine gradKE(bxQ, bxU, bxV, u_a, v_a, KE_a, KEx_a, KEy_a, Gcore, Gobc, KE_S
   call Gcore%mask2dCu%view(mask2dCu) ; call Gcore%mask2dCv%view(mask2dCv)
   call Gobc%IdxCu_OBCmask%view(IdxCu_OBCmask) ; call Gobc%IdyCv_OBCmask%view(IdyCv_OBCmask)
 
-  bxt = bxQ%growHi(dim=1, n=1) ; bxQ_pij = bxt%growHi(dim=2, n=1) ; call bxt%free()
+  bxQ_pij = bxQ%growBy(lo=[0,0,0], hi=[1,1,0])
 
   ! Calculate KE (Kinetic energy for use in the -grad(KE) acceleration term).
   if (KE_Scheme == KE_ARAKAWA) then

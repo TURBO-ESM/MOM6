@@ -376,6 +376,7 @@ plain `procedure ::` (no generics, one signature each).
 | `call bx%free()` | Deallocate both components. Safe on an unallocated box. |
 | `new = bx%grow(dim, n)` | **Returns a NEW `Box_t` by value.** `idxS(dim) -= n`, `idxE(dim) += n`. Does not mutate `bx`. |
 | `new = bx%growLo(dim, n)` / `growHi(dim, n)` | As `grow`, but only the start / only the end. |
+| `new = bx%growBy(lo=[…], hi=[…])` | **Returns a NEW `Box_t`.** `idxS(:) -= lo(:)`, `idxE(:) += hi(:)`, one entry per dimension; FATAL if the sizes don't match the rank. Use it for any multi-dimension or asymmetric grow, instead of chaining `grow*` through a temporary. In AMReX this is `Box(bx.smallEnd() - lo, bx.bigEnd() + hi)`, with dimensions numbered from 0. |
 | `new = bx%shrink(dim, n)` | New box with `idxS(dim) += n`, `idxE(dim) -= n`. |
 | `cdesc = bx%to_c()` | `Box_C` of `c_ptr`s. Null-safe. Available under **both** infra layers. |
 

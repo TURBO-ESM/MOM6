@@ -93,12 +93,13 @@ the subroutine has, or can be given.
    - Declare it as a local, after `! Local variables`, with a comment
      giving its range:
      `type(Box_t) :: bxQ_pij  ! bxQ grown by one point at the end in i and j,`.
-   - Build it right after the scalar-bound extraction lines. Use a
-     temporary `bxt` for a two-dimension grow, and free `bxt` on the
-     same line:
+   - Build it right after the scalar-bound extraction lines, with one
+     `growBy` call per box: `lo`/`hi` give the amount to extend the start
+     and the end in each dimension. No temporary box is needed.
      ```fortran
-     bxt = bxQ%growHi(dim=1, n=1) ; bxQ_pij = bxt%growHi(dim=2, n=1) ; call bxt%free()
-     bxQ_pj = bxQ%growHi(dim=2, n=1)
+     bxQ_pij = bxQ%growBy(lo=[0,0,0], hi=[1,1,0])
+     bxQ_pj  = bxQ%growHi(dim=2, n=1)
+     bxUx    = bxU%growBy(lo=[0,1,0], hi=[1,0,0])   ! end in i, start in j
      ```
    - Free every derived box just before `end subroutine`. Check for an
      early `return` first: each one needs the same frees, or the box
@@ -168,7 +169,7 @@ plan doc doesn't already record, ask.
 
 ### 2. Name-clash check
 
-Check every new name (derived boxes, `bxt`, any new core box) against
+Check every new name (derived boxes, any new core box) against
 every existing symbol in each target and in the module, ignoring case
 (lessons §9 #18). On a clash, stop and ask.
 
@@ -197,8 +198,7 @@ never a looser regex.
   build and compare it with the Step 1 raw range, in **both** memory
   modes.
 - **No leftovers.** No in-scope `do concurrent` still has a scalar
-  range; every derived box is freed on every exit path; `bxt` is freed
-  on the line that uses it.
+  range; every derived box is freed on every exit path.
 - **Consistency.** Every call's argument count and order match its
   callee. Every dropped bound or dummy is gone from the argument list,
   the declaration, the extraction line and the call site. Grep each old
