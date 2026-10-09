@@ -9,6 +9,8 @@ on: [push, pull_request]
 env:
   MOM_TARGET_SLUG: ${{ github.repository }}
   MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
+  # Build system for the build jobs below: make (the .testing Makefile) or cmake
+  MOM6_BUILD_SYSTEM: make
 
 jobs:
   # Documentation
@@ -46,6 +48,10 @@ jobs:
         test ! -s  all_errors
 
   # Executables
+  #
+  # Each build job compiles one variant with the build system named by
+  # MOM6_BUILD_SYSTEM (or a fixed one where noted) and uploads it as
+  # mom6-<variant>-artifact; see .github/actions/build-mom6 for the contract.
 
   build-symmetric:
     runs-on: ubuntu-latest
@@ -55,23 +61,10 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with symmetric indexing
-        run: make -C .testing -j build/symmetric/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-symmetric.tar .testing/build/symmetric/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-symmetric-artifact
-          path: mom6-symmetric.tar
-          retention-days: 1
+          variant: symmetric
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-asymmetric:
     runs-on: ubuntu-latest
@@ -81,23 +74,10 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with asymmetric indexing
-        run: make -C .testing -j build/asymmetric/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-asymmetric.tar .testing/build/asymmetric/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-asymmetric-artifact
-          path: mom6-asymmetric.tar
-          retention-days: 1
+          variant: asymmetric
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-repro:
     runs-on: ubuntu-latest
@@ -107,23 +87,10 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with bit-reproducible optimization
-        run: make -C .testing -j build/repro/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-repro.tar .testing/build/repro/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-repro-artifact
-          path: mom6-repro.tar
-          retention-days: 1
+          variant: repro
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-openmp:
     # temporarily disable until we get GCC to accept OpenMP target directives
@@ -136,23 +103,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 supporting OpenMP
-        run: make -C .testing -j build/openmp/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-openmp.tar .testing/build/openmp/MOM6
-
-      - uses: actions/upload-artifact@v4
+      # Not yet supported by the CMake build
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-openmp-artifact
-          path: mom6-openmp.tar
-          retention-days: 1
+          variant: openmp
+          build-system: make
 
   build-target:
     if: github.event_name == 'pull_request'
@@ -163,28 +118,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile target depedencies
-        run: |
-          make -C .testing \
-          DO_REGRESSION_TESTS=1 \
-          build/target_codebase
-          make -C .testing/build/target_codebase/.testing -j \
-          build/deps/lib/libFMS.a
-
-      - name: Compile target MOM6
-        run: |
-          make -C .testing -j \
-          DO_REGRESSION_TESTS=1 \
-          build/target/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-target.tar .testing/build/target/MOM6
-
-      - uses: actions/upload-artifact@v4
+      # The target codebase is built by its own .testing Makefile
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-target-artifact
-          path: mom6-target.tar
-          retention-days: 1
+          variant: target
+          build-system: make
 
   build-opt:
     runs-on: ubuntu-latest
@@ -194,30 +132,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with aggressive optimization
-        run: make -C .testing -j build/opt/MOM6
-
-      - name: Compile timing tests
-        run: make -C .testing build.timing
-
-      - name: Prepare artifact
-        run: |
-          tar -cf mom6-opt.tar \
-          --exclude='.testing/build/timing/time_*.o' \
-          .testing/build/opt/MOM6 \
-          .testing/build/timing/time_*
-
-      - uses: actions/upload-artifact@v4
+      # Not yet supported by the CMake build (needs the timing-test driver)
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-opt-artifact
-          path: mom6-opt.tar
-          retention-days: 1
+          variant: opt
+          build-system: make
 
   build-opt-target:
     if: github.event_name == 'pull_request'
@@ -228,38 +147,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile target dependencies
-        run: |
-          make -C .testing \
-          DO_REGRESSION_TESTS=1 \
-          build/target_codebase
-          make -C .testing/build/target_codebase/.testing -j \
-          build/deps/lib/libFMS.a
-
-      - name: Compile target MOM6
-        run: |
-          make -C .testing -j \
-          DO_REGRESSION_TESTS=1 \
-          build/opt_target/MOM6
-
-      - name: Compile target timing tests
-        run: |
-          make -C .testing/build/target_codebase/.testing \
-          DO_REGRESSION_TESTS=1 \
-          build.timing
-
-      - name: Prepare artifact
-        run: |
-          tar -cf mom6-opt-target.tar \
-          --exclude='.testing/build/target_codebase/.testing/build/timing/time_*.o' \
-          .testing/build/opt_target/MOM6 \
-          .testing/build/target_codebase/.testing/build/timing/time_*
-
-      - uses: actions/upload-artifact@v4
+      # The target codebase is built by its own .testing Makefile
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-opt-target-artifact
-          path: mom6-opt-target.tar
-          retention-days: 1
+          variant: opt-target
+          build-system: make
 
   build-coverage:
     runs-on: ubuntu-latest
@@ -269,34 +161,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with code coverage
-        run: make -C .testing -j build/cov/MOM6
-
-      - name: Compile MOM6 unit tests
-        run: |
-          make -C .testing -j build/unit/test_MOM_file_parser
-          make -C .testing -j build.unit
-
-      - name: Prepare artifact
-        run: |
-          tar -cf mom6-coverage.tar \
-          --exclude='.testing/build/unit/test_*.o' \
-          .testing/build/cov/MOM6 \
-          .testing/build/cov/*.gcno \
-          .testing/build/unit/test_* \
-          .testing/build/unit/*.gcno
-
-      - uses: actions/upload-artifact@v4
+      # Not yet supported by the CMake build (needs the unit-test driver)
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-coverage-artifact
-          path: mom6-coverage.tar
-          retention-days: 1
+          variant: coverage
+          build-system: make
 
   build-coupled-api:
     runs-on: ubuntu-latest
@@ -306,14 +175,11 @@ jobs:
 
       - uses: ./.github/actions/ubuntu-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 for the GFDL coupled driver
-        run: make -C .testing -j check_mom6_api_coupled
+      # Not yet supported by the CMake build (needs the GFDL coupled driver)
+      - uses: ./.github/actions/build-mom6
+        with:
+          variant: coupled-api
+          build-system: make
 
   # Tests
 
