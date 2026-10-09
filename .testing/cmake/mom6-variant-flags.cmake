@@ -2,11 +2,13 @@
 # See the LICENSE file for licensing information.
 # SPDX-License-Identifier: Apache-2.0
 
-# Loaded by build-mom6-cmake as CMAKE_PROJECT_MOM6_INCLUDE, at the end of
-# project(MOM6). Adds MOM6_VARIANT_FCFLAGS (the .testing debug or repro flags)
-# to MOM6's own targets only. The bundled packages keep the global flags, as in
-# the .testing build, which compiles them with FCFLAGS_FMS; the debug flags
-# include -std=f2018, which they do not conform to.
+# Loaded by .testing/Makefile (BUILDSYS=cmake) as CMAKE_PROJECT_MOM6_INCLUDE, at
+# the end of project(MOM6). Adds MOM6_VARIANT_FCFLAGS (the .testing debug or
+# repro flags) to MOM6's own targets only. The bundled packages keep the global
+# flags, as in the autoconf build, which compiles them with FCFLAGS_FMS; the
+# debug flags include -std=f2018, which they do not conform to. mom6_marbl is
+# MARBL itself, built only when MARBL_SOURCE_DIR is given; the MARBL API stubs
+# (mom6_marbl_stubs) are MOM6 code and get the variant flags.
 
 set(_mom6_bundled_targets mom6_cvmix mom6_gsw mom6_marbl)
 
