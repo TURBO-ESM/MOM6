@@ -66,6 +66,12 @@ runs:
             ;;
         esac
 
+        # MOM6 needs 8-byte default reals to match the r8 FMS library. The
+        # .testing build gets these from its configure script (AX_FC_REAL8),
+        # and turbo-stack adds them in its parent project, but MOM6's own CMake
+        # build does not, so add them here. These are the gfortran spellings.
+        fcflags="$fcflags -fdefault-real-8 -fdefault-double-8"
+
         {
           echo "MOM6_MEMORY_MODE=$memory_mode"
           echo "MOM6_FCFLAGS=$fcflags"
