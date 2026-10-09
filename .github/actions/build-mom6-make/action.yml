@@ -1,0 +1,121 @@
+# This file is part of MOM6, the Modular Ocean Model version 6.
+# See the LICENSE file for licensing information.
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'build-mom6-make'
+
+description: >-
+  Build one MOM6 variant with the .testing Makefile. Called by build-mom6, which
+  packages and uploads the result.
+
+inputs:
+  variant:
+    description: 'symmetric, asymmetric, repro, openmp, target, opt, opt-target, coverage or coupled-api'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check variant
+      shell: bash
+      env:
+        VARIANT: ${{ inputs.variant }}
+      run: |
+        case "$VARIANT" in
+          symmetric|asymmetric|repro|openmp|target|opt|opt-target|coverage|coupled-api) ;;
+          *) echo "::error::Unknown variant '$VARIANT'"; exit 1 ;;
+        esac
+
+    # The current codebase's variants
+
+    - name: Compile dependencies
+      if: inputs.variant != 'target' && inputs.variant != 'opt-target'
+      shell: bash
+      run: |
+        make -C .testing -j build/deps/lib/libFMS.a
+        make -C .testing -j PKG= build/deps/lib/libgsw.a
+        make -C .testing -j PKG= build/deps/lib/libcvmix.a
+
+    - name: Compile MOM6 with symmetric indexing
+      if: inputs.variant == 'symmetric'
+      shell: bash
+      run: make -C .testing -j build/symmetric/MOM6
+
+    - name: Compile MOM6 with asymmetric indexing
+      if: inputs.variant == 'asymmetric'
+      shell: bash
+      run: make -C .testing -j build/asymmetric/MOM6
+
+    - name: Compile MOM6 with bit-reproducible optimization
+      if: inputs.variant == 'repro'
+      shell: bash
+      run: make -C .testing -j build/repro/MOM6
+
+    - name: Compile MOM6 supporting OpenMP
+      if: inputs.variant == 'openmp'
+      shell: bash
+      run: make -C .testing -j build/openmp/MOM6
+
+    - name: Compile MOM6 with aggressive optimization
+      if: inputs.variant == 'opt'
+      shell: bash
+      run: make -C .testing -j build/opt/MOM6
+
+    - name: Compile timing tests
+      if: inputs.variant == 'opt'
+      shell: bash
+      run: make -C .testing build.timing
+
+    - name: Compile MOM6 with code coverage
+      if: inputs.variant == 'coverage'
+      shell: bash
+      run: make -C .testing -j build/cov/MOM6
+
+    - name: Compile MOM6 unit tests
+      if: inputs.variant == 'coverage'
+      shell: bash
+      run: |
+        make -C .testing -j build/unit/test_MOM_file_parser
+        make -C .testing -j build.unit
+
+    - name: Compile MOM6 for the GFDL coupled driver
+      if: inputs.variant == 'coupled-api'
+      shell: bash
+      run: make -C .testing -j check_mom6_api_coupled
+
+    # The regression target (base branch) variants, built by the target
+    # codebase's own .testing Makefile
+
+    - name: Compile target dependencies
+      if: inputs.variant == 'target' || inputs.variant == 'opt-target'
+      shell: bash
+      run: |
+        make -C .testing \
+        DO_REGRESSION_TESTS=1 \
+        build/target_codebase
+        make -C .testing/build/target_codebase/.testing -j \
+        build/deps/lib/libFMS.a
+
+    - name: Compile target MOM6
+      if: inputs.variant == 'target'
+      shell: bash
+      run: |
+        make -C .testing -j \
+        DO_REGRESSION_TESTS=1 \
+        build/target/MOM6
+
+    - name: Compile target MOM6
+      if: inputs.variant == 'opt-target'
+      shell: bash
+      run: |
+        make -C .testing -j \
+        DO_REGRESSION_TESTS=1 \
+        build/opt_target/MOM6
+
+    - name: Compile target timing tests
+      if: inputs.variant == 'opt-target'
+      shell: bash
+      run: |
+        make -C .testing/build/target_codebase/.testing \
+        DO_REGRESSION_TESTS=1 \
+        build.timing

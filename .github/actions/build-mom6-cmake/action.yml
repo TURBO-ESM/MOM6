@@ -1,0 +1,120 @@
+# This file is part of MOM6, the Modular Ocean Model version 6.
+# See the LICENSE file for licensing information.
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'build-mom6-cmake'
+
+description: >-
+  Build one MOM6 variant with CMake and place the executable where the .testing
+  Makefile would have built it. Called by build-mom6, which packages and uploads
+  the result.
+
+# CMake builds only the solo driver so far, so only the solo-driver variants
+# below are supported. The others (openmp, target, opt, opt-target, coverage,
+# coupled-api) fail with an error until the CMake build can produce them; pin
+# those jobs to `build-system: make` in verify-linux.yml in the meantime.
+#
+# Compiler flags and the FMS repository and commit are read from the .testing
+# Makefile (and the config.mk written by ubuntu-setup), so both build systems
+# compile with the same flags against the same FMS.
+
+inputs:
+  variant:
+    description: 'symmetric, asymmetric or repro'
+    required: true
+  marbl-url:
+    description: 'MARBL repository; the CMake build needs its source'
+    required: false
+    default: 'https://github.com/marbl-ecosys/MARBL.git'
+  marbl-commit:
+    description: 'MARBL commit, by default the one TURBO-ESM/turbo-stack pins'
+    required: false
+    default: '2c04fb23d0ee9ceef6d61f1021652ccab62e8324'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Select CMake configuration
+      shell: bash
+      env:
+        VARIANT: ${{ inputs.variant }}
+      run: |
+        # Print a variable as the .testing Makefile sees it
+        testing_var() {
+          make -C .testing -s --no-print-directory \
+            --eval='print-%: ; @echo $($*)' print-$1
+        }
+
+        case "$VARIANT" in
+          symmetric)
+            memory_mode=dynamic_symmetric
+            fcflags="$(testing_var FCFLAGS_DEBUG) $(testing_var FCFLAGS_INIT)"
+            ;;
+          asymmetric)
+            memory_mode=dynamic_nonsymmetric
+            fcflags="$(testing_var FCFLAGS_DEBUG) $(testing_var FCFLAGS_INIT)"
+            ;;
+          repro)
+            memory_mode=dynamic_symmetric
+            fcflags="$(testing_var FCFLAGS_REPRO)"
+            ;;
+          *)
+            echo "::error::Variant '$VARIANT' is not yet supported by the CMake build"
+            exit 1
+            ;;
+        esac
+
+        {
+          echo "MOM6_MEMORY_MODE=$memory_mode"
+          echo "MOM6_FCFLAGS=$fcflags"
+          echo "FMS_URL=$(testing_var FMS_URL)"
+          echo "FMS_COMMIT=$(testing_var FMS_COMMIT)"
+          echo "CMAKE_DEPS=$PWD/.testing/build/cmake-deps"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)"
+        } >> "$GITHUB_ENV"
+
+    - name: Initialize CVMix and GSW submodules
+      shell: bash
+      run: git submodule update --init --depth 1 pkg/CVMix-src pkg/GSW-Fortran
+
+    - name: Fetch MARBL
+      shell: bash
+      env:
+        MARBL_URL: ${{ inputs.marbl-url }}
+        MARBL_COMMIT: ${{ inputs.marbl-commit }}
+      run: |
+        git init -q "$CMAKE_DEPS/MARBL"
+        git -C "$CMAKE_DEPS/MARBL" fetch -q --depth 1 "$MARBL_URL" "$MARBL_COMMIT"
+        git -C "$CMAKE_DEPS/MARBL" checkout -q FETCH_HEAD
+
+    - name: Compile FMS
+      shell: bash
+      run: |
+        git init -q "$CMAKE_DEPS/FMS"
+        git -C "$CMAKE_DEPS/FMS" fetch -q --depth 1 "$FMS_URL" "$FMS_COMMIT"
+        git -C "$CMAKE_DEPS/FMS" checkout -q FETCH_HEAD
+        # The same FMS options turbo-stack builds with
+        cmake -S "$CMAKE_DEPS/FMS" -B "$CMAKE_DEPS/FMS/build" \
+          -DCMAKE_INSTALL_PREFIX="$CMAKE_DEPS/install" \
+          -D64BIT=ON -D32BIT=OFF -DFPIC=ON -DOPENMP=OFF
+        cmake --build "$CMAKE_DEPS/FMS/build"
+        cmake --install "$CMAKE_DEPS/FMS/build"
+
+    - name: Compile MOM6 with CMake
+      shell: bash
+      env:
+        VARIANT: ${{ inputs.variant }}
+      run: |
+        # The installed FMS package does not ship FindNetCDF.cmake, which its
+        # package config needs, so take it from the FMS source tree.
+        cmake -S . -B ".testing/build/cmake-$VARIANT" \
+          -DCMAKE_PREFIX_PATH="$CMAKE_DEPS/install" \
+          -DCMAKE_MODULE_PATH="$CMAKE_DEPS/FMS/cmake" \
+          -DMARBL_SOURCE_DIR="$CMAKE_DEPS/MARBL" \
+          -DMOM6_INFRA=FMS2 \
+          -DMOM6_MEMORY_MODE="$MOM6_MEMORY_MODE" \
+          -DCMAKE_Fortran_FLAGS="$MOM6_FCFLAGS"
+        cmake --build ".testing/build/cmake-$VARIANT" --target MOM6
+        mkdir -p ".testing/build/$VARIANT"
+        cp ".testing/build/cmake-$VARIANT/config_src/drivers/solo_driver/MOM6" \
+          ".testing/build/$VARIANT/MOM6"
