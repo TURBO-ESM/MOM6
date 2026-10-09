@@ -12,7 +12,7 @@ env:
   MOM_TARGET_SLUG: ${{ github.repository }}
   MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
   # Build system for the MOM6 executables: autoconf or cmake (see .testing/Makefile)
-  BUILDSYS: cmake
+  BUILDSYS: autoconf
 
 jobs:
   # Executables
