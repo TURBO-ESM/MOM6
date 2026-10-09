@@ -11,9 +11,15 @@ env:
   FC: gfortran
   MOM_TARGET_SLUG: ${{ github.repository }}
   MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
+  # Build system for the build jobs below: make (the .testing Makefile) or cmake
+  MOM6_BUILD_SYSTEM: make
 
 jobs:
   # Executables
+  #
+  # Each build job compiles one variant with the build system named by
+  # MOM6_BUILD_SYSTEM (or a fixed one where noted) and uploads it as
+  # mom6-<variant>-artifact; see .github/actions/build-mom6 for the contract.
 
   build-symmetric:
     runs-on: macOS-latest
@@ -23,23 +29,10 @@ jobs:
 
       - uses: ./.github/actions/macos-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with symmetric indexing
-        run: make -C .testing -j build/symmetric/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-symmetric.tar .testing/build/symmetric/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-symmetric-artifact
-          path: mom6-symmetric.tar
-          retention-days: 1
+          variant: symmetric
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-asymmetric:
     runs-on: macOS-latest
@@ -49,23 +42,10 @@ jobs:
 
       - uses: ./.github/actions/macos-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with asymmetric indexing
-        run: make -C .testing -j build/asymmetric/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-asymmetric.tar .testing/build/asymmetric/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-asymmetric-artifact
-          path: mom6-asymmetric.tar
-          retention-days: 1
+          variant: asymmetric
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-repro:
     runs-on: macOS-latest
@@ -75,23 +55,10 @@ jobs:
 
       - uses: ./.github/actions/macos-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 with bit-reproducible optimization
-        run: make -C .testing -j build/repro/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-repro.tar .testing/build/repro/MOM6
-
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-repro-artifact
-          path: mom6-repro.tar
-          retention-days: 1
+          variant: repro
+          build-system: ${{ env.MOM6_BUILD_SYSTEM }}
 
   build-openmp:
     runs-on: macOS-latest
@@ -101,23 +68,11 @@ jobs:
 
       - uses: ./.github/actions/macos-setup/
 
-      - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
-
-      - name: Compile MOM6 supporting OpenMP
-        run: make -C .testing -j build/openmp/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-openmp.tar .testing/build/openmp/MOM6
-
-      - uses: actions/upload-artifact@v4
+      # Not yet supported by the CMake build
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-openmp-artifact
-          path: mom6-openmp.tar
-          retention-days: 1
+          variant: openmp
+          build-system: make
 
   build-target:
     if: github.event_name == 'pull_request'
@@ -128,28 +83,11 @@ jobs:
 
       - uses: ./.github/actions/macos-setup/
 
-      - name: Compile target dependencies
-        run: |
-          make -C .testing \
-          DO_REGRESSION_TESTS=1 \
-          build/target_codebase
-          make -C .testing/build/target_codebase/.testing -j \
-          build/deps/lib/libFMS.a
-
-      - name: Compile target MOM6
-        run: |
-          make -C .testing -j \
-          DO_REGRESSION_TESTS=1 \
-          build/target/MOM6
-
-      - name: Prepare artifact
-        run: tar -cf mom6-target.tar .testing/build/target/MOM6
-
-      - uses: actions/upload-artifact@v4
+      # The target codebase is built by its own .testing Makefile
+      - uses: ./.github/actions/build-mom6
         with:
-          name: mom6-target-artifact
-          path: mom6-target.tar
-          retention-days: 1
+          variant: target
+          build-system: make
 
   # Tests
 
