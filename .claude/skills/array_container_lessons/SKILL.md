@@ -1,11 +1,29 @@
 ---
 name: array_container_lessons
-version: "0.3"
-description: Reference material for converting MOM6 subroutines from raw Fortran arrays (real, dimension(SZI_(G),SZJ_(G),SZK_(GV))) to the RealArray_t / IntArray_t / LogicalArray_t / Box_t container types -- the in-place conversion pattern, where the marshalling lives at the call site, the complete alloc/allocView/view/copy2F/copy2Array/free API with exact signatures, intent-driven copy rules, and recurring pitfalls, organized in numbered sections §1-§10. Companion to the convert_array_containers skill, which cites these sections by number throughout its procedure. Invoke once near the start of a session that will run convert_array_containers one or more times; not needed again per-subroutine within that session.
+version: "0.3.2"
+description: Reference material for converting MOM6 subroutines from raw Fortran arrays (real, dimension(SZI_(G),SZJ_(G),SZK_(GV))) to the RealArray_t / IntArray_t / LogicalArray_t / Box_t container types -- the in-place conversion pattern, where the marshalling lives at the call site, the complete alloc/allocView/view/copy2F/copy2Array/free API with exact signatures, intent-driven copy rules, and recurring pitfalls, organized in numbered sections §1-§10. Companion to the convert_array_containers skill, which cites these sections by number throughout its procedure. Invoke once near the start of a session that will run convert_array_containers one or more times; not needed again per-subroutine within that session. STANDING RULE for every MOM6 edit: never reword, shorten or "fix" an existing Fortran comment; copy doc comments verbatim (see the box at the top).
 user-invocable: true
 ---
 
 # Array-container conversion: reference
+
+> **STANDING RULE — Fortran comments are not yours to edit (user, repeated; 2026-09-29).**
+> - Never change the wording of an existing Fortran comment: don't shorten it, paraphrase it,
+>   drop an article ("the"), drop the trailing period, or "correct" a typo. This applies to `!<`,
+>   `!!` and plain `!` comments alike.
+> - When a new declaration takes its doc comment from somewhere else (e.g. a `grid_core` member
+>   from `ocean_grid_type` in `MOM_grid.F90`, or a promoted dummy from the field it replaces),
+>   **copy the text word for word**. Keep the upstream wording even where it looks wrong; for
+>   example `IdyCv_OBCmask` says "1/dxCv".
+> - **Line too long?** Move line breaks only: continue on `!!` lines aligned under the `!<`. Never
+>   reword to make it fit. Keep a bracketed unit, and unit alternatives like `[degrees_N] or [km]
+>   or [m]`, on one line.
+> - **Verify before handing over:** extract the source comment by script and check word-for-word
+>   equality with what you wrote.
+> - **If a change makes an existing comment inaccurate** (e.g. a count or a rule it states), leave
+>   the comment alone and tell the user.
+> - Adding a brand-new comment for a brand-new declaration is fine. Editing any existing comment
+>   is not.
 
 > Invoke once, near the start of a session, before running
 > `convert_array_containers`; it stays available for the rest of the
@@ -316,6 +334,25 @@ Deallocates payload plus all three metadata arrays, resets `rank = 0`.
 Every deallocate is guarded by `associated`, so `free` is safe on an
 unallocated or already-freed container, and calling it twice is safe.
 
+### 4.5a `rebound`
+
+```fortran
+subroutine reboundReal(this, lb, ub)      ! also reboundInt, reboundLogical
+  class(RealArray_t), intent(inout) :: this
+  integer,            intent(in)    :: lb(:), ub(:)
+```
+
+Resets `lb`/`ub`/`shape` of an allocated container without reallocating or moving its data.
+- It is FATAL if the container isn't allocated, if the rank differs, or if the new extents hold
+  more elements than were allocated. Shrinking is allowed.
+- Re-`%view` after a rebound: existing pointers keep their old bounds.
+- **Use:** per-tile scratch whose shape is fixed but whose k-bounds move with the tile.
+  Allocate once for the largest tile, then rebound and view inside the tile loop, as
+  `CorAdCalc_TR` does. This replaces an alloc/free per tile.
+- `size(this%data)` can exceed `product(shape)` after a shrink. `copy2F`/`copy2Array`, `%view`
+  and the logical `to_c`/`from_c` all use `shape`, but `write_binary` writes all of `data`. So
+  don't capture a shrunk container.
+
 ### 4.6 `dup` no longer exists
 
 `%dup` was restructured into `%alloc`: `call a%dup(x) ; call
@@ -339,6 +376,7 @@ plain `procedure ::` (no generics, one signature each).
 | `call bx%free()` | Deallocate both components. Safe on an unallocated box. |
 | `new = bx%grow(dim, n)` | **Returns a NEW `Box_t` by value.** `idxS(dim) -= n`, `idxE(dim) += n`. Does not mutate `bx`. |
 | `new = bx%growLo(dim, n)` / `growHi(dim, n)` | As `grow`, but only the start / only the end. |
+| `new = bx%growBy(lo=[…], hi=[…])` | **Returns a NEW `Box_t`.** `idxS(:) -= lo(:)`, `idxE(:) += hi(:)`, one entry per dimension; FATAL if the sizes don't match the rank. Use it for any multi-dimension or asymmetric grow, instead of chaining `grow*` through a temporary. In AMReX this is `Box(bx.smallEnd() - lo, bx.bigEnd() + hi)`, with dimensions numbered from 0. |
 | `new = bx%shrink(dim, n)` | New box with `idxS(dim) += n`, `idxE(dim) -= n`. |
 | `cdesc = bx%to_c()` | `Box_C` of `c_ptr`s. Null-safe. Available under **both** infra layers. |
 
@@ -359,6 +397,93 @@ bx = bxC%grow(dim=1, n=1)
 ...
 call bx%free()          ! required -- see §9 #3
 ```
+
+**Reading bounds once at the top of a kernel.** Instead of growing a
+new box for each loop, a kernel can read scalar bounds from its boxes
+once, the way the continuity kernels do
+(`ish = bxC%idxS(1) ; ieh = bxC%idxE(1) ; …`), and keep its loop
+headers' original range expressions (`I=ish-1:ieh`). That is the
+lower-risk choice when converting an existing body: every loop header
+can be checked against the original line by line. Once the tree is
+stable, `convert_loops_to_box_iterators` replaces those scalar ranges
+with core and derived boxes (e.g. `bxQ_pij = bxQ` grown at the end in i
+and j) ahead of AMReX bridging.
+
+```fortran
+is  = bxH%idxS(1) ; ie  = bxH%idxE(1) ; js  = bxH%idxS(2) ; je  = bxH%idxE(2)
+Isq = bxQ%idxS(1) ; Ieq = bxQ%idxE(1) ; Jsq = bxQ%idxS(2) ; Jeq = bxQ%idxE(2)
+ksc = bxH%idxS(3) ; kec = bxH%idxE(3)      ! not ks/ke: see §9 #18
+```
+
+**Memory mode: build staggered boxes from `G`, not by growing.**
+`G%IscB`/`G%JscB` equal `isc`/`jsc` with non-symmetric memory and
+`isc-1`/`jsc-1` with symmetric memory. So growing an h-point box by one
+reproduces a B-index range (`Isq:Ieq`) in only one of the two modes.
+When the code being converted uses `G%IscB`-style ranges, build a
+separate box from them, e.g.
+`bxQ%set(idxS=[G%IscB,G%JscB,ks], idxE=[G%IecB,G%JecB,ke])`, so both
+memory modes stay bit-for-bit. (Continuity avoids the issue because its
+code always used `ish-1`-style offsets.)
+
+**Per-tile boxes and tile-shaped scratch.** A root routine that loops
+over tiles (k-blocks today, AMReX `MFIter` tiles later) allocates its
+boxes once and re-`set`s them per tile:
+
+```fortran
+call bxH%safe_alloc(ndims=3)
+do k_start = 1, nz, nkblock
+  k_end = min(k_start+nkblock-1, nz)
+  call bxH%set(idxS=[G%isc,G%jsc,k_start], idxE=[G%iec,G%jec,k_end])
+  call tile_body(..., bxH, ...)
+enddo
+call bxH%free()
+```
+
+Inside the per-tile body, scratch can be an automatic array whose k-bounds
+come from the box, indexed by the real `k` rather than a block-relative
+`kk`. This is legal because a specification expression may reference a
+component of a non-optional, non-`intent(out)` dummy:
+
+```fortran
+type(Box_t), intent(in) :: bxH    ! declare the box before the arrays that use it
+real, dimension(SZIB_(G),SZJB_(G),bxH%idxS(3):bxH%idxE(3)) :: q
+```
+
+The per-tile body's writes to full-k outputs (`CAu`, `CAv`) cover only
+that tile's layers, so those dummies must be `intent(inout)`, not
+`intent(out)`: an `intent(out)` array would lose the other tiles'
+layers.
+
+**Persistent grid containers: `grid_core` and `grid_OBC`** (`src/core/MOM_grid_containers.F90`).
+
+- **What they are:**
+  - Copies of the `ocean_grid_type` arrays, built once in `initialize_MOM` (after the grid is
+    final) and freed in `MOM_end`.
+  - `grid_core` holds every non-OBC array a planned tree reads.
+  - `grid_OBC` holds `OBCmaskCu IdxCu_OBCmask OBCmaskCv IdyCv_OBCmask`.
+  - Members are `RealArray_t` with the **same names as in `G`**. Each structure also carries `C`,
+    its `bind(C)` mirror (`grid_core_C` / `grid_OBC_C`), built once under `#ifdef _TIM`.
+- **Getting them:** `Gcore => grid_core(G)` / `Gobc => grid_OBC(G)` return pointers. They are
+  FATAL if the structure was not built, or if its bounds don't match `G`.
+- **Using them in a kernel:**
+
+  ```fortran
+  type(grid_core_type), intent(in) :: Gcore !< Persistent copies of the core ocean grid fields
+  real, dimension(:,:), contiguous, pointer :: IdxCu, IdyCv
+  call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  ```
+
+  The body then uses `IdxCu` where it had `G%IdxCu`.
+- **Never** `%free()` a member, and never `alloc(source=G%<f>)` per call.
+- **Adding members:** new members are appended, in the same order in all five places (both
+  types, init, `to_c`, end). Their comments are copied word for word from `MOM_grid.F90`. Adding
+  a field, or a new group, is the user's decision.
+- **Tree-root boxes:** a tree root gets grid index ranges as whole-column boxes from its cap
+  (`bxH0`, `bxQ0`), and builds U/V tile boxes by combining their i/j ranges.
+
+**On the C++ side** every array's own `lb` positions its `Array4`. See
+TIM `generate_amrex_code` lessons.md §7 #12: arrays with different
+staggering in one kernel break silently if that's skipped.
 
 ---
 
@@ -511,6 +636,11 @@ physical meaning.
 
 ## 8. Grid-derived arrays and shrinking argument lists
 
+> **`ocean_grid_type` arrays are the exception to this section.** They come from the persistent
+> `grid_core`/`grid_OBC` containers (§5, "Persistent grid containers"), not from per-field
+> dummies built by the caller. What follows still applies to other derived types (`GV`, `US`,
+> `CS`, …).
+
 Some arrays a routine needs aren't dummies at all — reached through a
 derived type, most commonly `G%mask2dT`. These become **new** container
 dummies, built by the caller:
@@ -632,6 +762,23 @@ Only drop `G`/`GV`/`US`/`CS` once nothing in the body references them.
     `use_uhbt` referenced inside. Audit for this the same way as a
     missing `nullify` (#16) — both are "prepare the value entirely
     before the construct begins."
+18. **Fortran names are case-insensitive: check every new name against
+    existing symbols ignoring case.** A new `ke` (a tile's k-end bound)
+    is the same identifier as an existing array `KE` (kinetic energy).
+    In CorAdCalc's `CorAdv_tile` and `gradKE` this failed to compile,
+    and the error was confusing:
+    - the real error is `Symbol 'ke' at (1) already has basic type of
+      REAL`, at the declaration;
+    - gfortran also reports cascade errors at unrelated lines, e.g.
+      `Cannot convert INTEGER(4) to UNKNOWN` at a
+      `do concurrent (k=ks:ke, …)` header.
+
+    Before introducing a dummy, local or loop bound, grep the subroutine
+    for it with `grep -niw`, and run a case-insensitive duplicate-
+    declaration check per edited subroutine before handing the code
+    over. When a build fails with several errors, look for the first
+    one: later errors are often cascades. Names that avoid this here:
+    `ksc`/`kec` (like MOM6's `isc`/`iec`).
 
 ---
 

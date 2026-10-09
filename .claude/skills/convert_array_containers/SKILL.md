@@ -1,6 +1,6 @@
 ---
 name: convert_array_containers
-version: "0.3"
+version: "0.3.2"
 description: Convert a MOM6 Fortran subroutine from raw grid-shaped arrays to RealArray_t/IntArray_t/LogicalArray_t containers in place -- array dummies become containers, the body gets %view pointers so the math is untouched, and every call site gets alloc/copy2F/free. Also fixes local-array sizing still keyed off G/GV macros once a matching dummy is already a container (Step 2a), and promotes any remaining G%/GV%/US%/CS% field reference, array or scalar, anywhere in an already-converted subroutine's body to a plain dummy (Step 2b). Use when pushing the raw-array boundary up the MOM6 call tree. Does NOT rename anything, add a dispatcher shim, capture mode, or a bind(C) bridge -- those belong to generate_cpp_bridge.
 user-invocable: true
 argument-hint: <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit] [--disable_git_commit]
@@ -218,7 +218,8 @@ section that holds the template or rationale.
    Then scan the body for derived-type array references (`G%mask2dT`,
    …) and scalar references (`GV%Angstrom_H`, …). Arrays become new
    container dummies; scalars become plain dummies computed at the call
-   site (lessons §8).
+   site (lessons §8). **Exception: `G%<array>` references** come from
+   `grid_core`/`grid_OBC` (see Step 2b), never a new `<f>_a` dummy.
 
    Print the proposed new argument list — including any Step 2a
    rewrites — and pause for user confirmation before writing anything.
@@ -301,6 +302,26 @@ section that holds the template or rationale.
      with a fresh `!<` comment, replace every occurrence with its bare
      name, and at every call site add
      `<field>=<caller's-own-derived-type>%<field>` — no container.
+
+   **Grid data comes from `grid_core`/`grid_OBC`, never per-field promotion.** Every
+   `ocean_grid_type` array a planned tree reads has a persistent copy, built once at init, in one
+   of two singletons in `src/core/MOM_grid_containers.F90` (lessons §5, §8):
+   - `grid_core`: every non-OBC grid array;
+   - `grid_OBC`: `OBCmaskCu IdxCu_OBCmask OBCmaskCv IdyCv_OBCmask`.
+   
+   The rules:
+   - A subroutine that reads `G%<f>` takes `type(grid_core_type), intent(in) :: Gcore` (and/or
+     `type(grid_OBC_type), intent(in) :: Gobc`) at `G`'s position.
+   - It declares `real, dimension(:,:), contiguous, pointer :: <f>`, calls
+     `call Gcore%<f>%view(<f>)` next to its other views, and replaces `G%<f>` → `<f>` in the body.
+   - The cap fetches `Gcore => grid_core(G)` / `Gobc => grid_OBC(G)` and passes them down.
+   - **No per-call `alloc(source=G%<f>)` and no `<f>_a` dummy.**
+   - If a field is missing from both structures, stop and ask the user whether to add it. Never
+     promote it per field, and never add a third group without asking.
+   - Grid *index scalars* (`G%isc`, `G%IscB`, …) are not in either structure. At a tree root they
+     come from boxes the cap builds (e.g. `bxH0`/`bxQ0`), not from scalar dummies.
+   - New `Gcore`/`Gobc`/pointer declarations get new comments. The removed `G` declaration goes
+     whole; no other comment changes (see the standing rule in `array_container_lessons`).
 
    Do this for **every** distinct field found — one used directly here is
    exactly as eligible as one only forwarded, and finding one says
@@ -581,7 +602,7 @@ section that holds the template or rationale.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version number for this whole skill family,
 not just this one skill (bump every skill file's `version:` field and
 this marker in lockstep when any of them changes in a way that affects
@@ -594,7 +615,7 @@ later, once these markers are no longer useful.
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file this skill touches,
+- Never skip the `!!SKILLS: 0.3.2` marker on a file this skill touches,
   and never add a second marker line if one already exists — update it
   in place instead.
 - Do not rename the subroutine, and do not create a `*_fortran` variant
@@ -651,6 +672,9 @@ later, once these markers are no longer useful.
 - Do not use an `optional` dummy's `%lb`/`%ub` to size another local or
   dummy (Step 2a) — an absent optional's container is disassociated, so
   its bounds would be too.
+- Do not create a per-field container dummy, or a per-call
+  `alloc(source=G%<f>)`, for a `G%` array. It comes from `Gcore`/`Gobc`
+  (Step 2b). A field in neither structure is a question for the user.
 - Do not create a new container dummy for a `G%`/`GV%` field when a
   local container already exists from that same source (Step 2b) —
   promote the existing local instead.

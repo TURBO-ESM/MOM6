@@ -25,6 +25,8 @@ module box_mod
                                  !! both extents of box are increased by a fixed amount
      procedure   :: growLo       !< Increase the start extent of the box in one dimension
      procedure   :: growHi       !< Increase the end extent of the box in one dimension
+     procedure   :: growBy       !< Increase the start and end extents of the box in every
+                                 !! dimension by separate amounts
      procedure   :: shrink       !< Decrease the bounds of a box in one dimension
                                  !! both extents of box are decreased by a fixed amount
      procedure   :: write_binary !< Write a box_t to a binary file
@@ -196,6 +198,23 @@ function growHi(this,dim,n) result(new)
   new%idxE(dim) = new%idxE(dim)+n
 
 end function growHi
+
+!> Return a new box whose start indices are lowered by lo and whose end indices are raised by hi,
+!! with one entry of lo and hi per dimension.
+function growBy(this, lo, hi) result(new)
+  class(Box_t), intent(in) :: this  !< The iteration box to grow
+  integer,      intent(in) :: lo(:) !< The amount to lower the start index by, per dimension
+  integer,      intent(in) :: hi(:) !< The amount to raise the end index by, per dimension
+  type(Box_t) :: new
+
+  if (size(lo) /= size(this%idxS) .or. size(hi) /= size(this%idxS)) &
+    call MOM_err(FATAL, "Box_t%growBy: size of lo and hi must match the rank of the box")
+
+  allocate(new%idxS(size(this%idxS)), new%idxE(size(this%idxE)))
+  new%idxS(:) = this%idxS(:) - lo(:)
+  new%idxE(:) = this%idxE(:) + hi(:)
+
+end function growBy
 
 !< Return a new box with contracted iteration extents
 function shrink(this,dim,n) result(new)
