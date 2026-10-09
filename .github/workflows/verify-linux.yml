@@ -9,6 +9,8 @@ on: [push, pull_request]
 env:
   MOM_TARGET_SLUG: ${{ github.repository }}
   MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
+  # Build system for the MOM6 executables: autoconf or cmake (see .testing/Makefile)
+  BUILDSYS: autoconf
 
 jobs:
   # Documentation
@@ -56,10 +58,7 @@ jobs:
       - uses: ./.github/actions/ubuntu-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with symmetric indexing
         run: make -C .testing -j build/symmetric/MOM6
@@ -82,10 +81,7 @@ jobs:
       - uses: ./.github/actions/ubuntu-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with asymmetric indexing
         run: make -C .testing -j build/asymmetric/MOM6
@@ -108,10 +104,7 @@ jobs:
       - uses: ./.github/actions/ubuntu-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with bit-reproducible optimization
         run: make -C .testing -j build/repro/MOM6
@@ -130,6 +123,9 @@ jobs:
     if: false
 
     runs-on: ubuntu-latest
+    # Not yet supported by the CMake build
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -157,6 +153,9 @@ jobs:
   build-target:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Built by the target codebase's own .testing Makefile
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -188,6 +187,9 @@ jobs:
 
   build-opt:
     runs-on: ubuntu-latest
+    # Not yet supported by the CMake build
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -222,6 +224,9 @@ jobs:
   build-opt-target:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Built by the target codebase's own .testing Makefile
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -263,6 +268,9 @@ jobs:
 
   build-coverage:
     runs-on: ubuntu-latest
+    # Not yet supported by the CMake build
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -300,6 +308,9 @@ jobs:
 
   build-coupled-api:
     runs-on: ubuntu-latest
+    # Not yet supported by the CMake build
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
