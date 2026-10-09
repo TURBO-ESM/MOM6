@@ -6,7 +6,8 @@ name: 'build-mom6'
 
 description: >-
   Build one MOM6 variant with the selected build system and upload it as the
-  mom6-<variant>-artifact that the verify-linux.yml test jobs consume.
+  mom6-<variant>-artifact that the verify-linux.yml and verify-macos.yml test
+  jobs consume.
 
 # Each build system has its own action (build-mom6-make, build-mom6-cmake). This
 # action picks one and then packages the result, so the artifact contract below
