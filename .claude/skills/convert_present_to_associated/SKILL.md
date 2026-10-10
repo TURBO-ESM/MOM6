@@ -1,6 +1,6 @@
 ---
 name: convert_present_to_associated
-version: "0.3"
+version: "0.3.2"
 description: Convert an already-array-container-ified optional dummy argument from Fortran's `optional`/`present()` idiom to a non-optional container checked via `x%associated()`, for bind(C)/C++ bridge-readiness (C/C++ has no `optional`, only nullable pointers). The unit of conversion is an ARGUMENT NAME across its whole by-value forwarding chain, not a single subroutine. Precondition: the argument must already be a RealArray_t/IntArray_t/LogicalArray_t at every subroutine in that chain (run convert_array_containers first where it is still raw). Does not touch the container API beyond the %associated() method, does not add a bind(C) bridge -- that is generate_cpp_bridge's job.
 user-invocable: true
 argument-hint: <work-directory> <dummy-argument-name>[,<dummy-argument-name>...] [<seed-function-name>]
@@ -155,7 +155,7 @@ at compile time. The only reason to do this is bridge-readiness.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version for this whole skill family. If
 missing, add it right after the file's license/header block, before
 `module`; if present, update it in place. Grep-able
@@ -163,7 +163,7 @@ missing, add it right after the file's license/header block, before
 
 ## Hard rules
 
-- Never skip or duplicate the `!!SKILLS: 0.3` marker.
+- Never skip or duplicate the `!!SKILLS: 0.3.2` marker.
 - Never convert an argument still declared as a raw array.
 - Never convert one member of a `present()`-linked group alone.
 - Never leave a caller omitting the argument after its callee drops

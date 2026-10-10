@@ -1,6 +1,6 @@
 ---
 name: convert_locals_to_containers
-version: "0.3"
+version: "0.3.2"
 description: Convert a subroutine's own internal scratch-local arrays (never its dummy arguments) to RealArray_t/IntArray_t/LogicalArray_t containers, wherever every callee that consumes a given local already accepts a container for that argument -- eliminating the alloc-source-copy-free round trip currently needed to hand a freshly-computed local off to an already-converted callee. Accepts a comma-separated list of subroutine names so a whole call tree (or however much of it has had convert_array_containers run on its interfaces already) can be swept in one invocation, each subroutine verified independently. Distinct from convert_array_containers (which only ever touches dummy arguments, never locals) and from hoist_container_marshalling (which only reorders/merges alloc, free and copy2F calls for containers that already exist -- it never changes a variable's fundamental type). Use this once a callee a subroutine calls has already been converted and that subroutine still computes the matching argument into a raw local purely to copy it in and immediately throw it away.
 user-invocable: true
 argument-hint: <work-directory> <function-name>[,<function-name>...] [--enable_git_commit] [--disable_git_commit]
@@ -177,7 +177,7 @@ passed unchanged.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version for this whole skill family. If
 missing, add it right after the file's license/header block, before
 `module`; if present, update it in place. Grep-able
@@ -185,7 +185,7 @@ missing, add it right after the file's license/header block, before
 
 ## Hard rules
 
-- Never skip or duplicate the `!!SKILLS: 0.3` marker.
+- Never skip or duplicate the `!!SKILLS: 0.3.2` marker.
 - Never convert a local never passed to any call.
 - Never let one still-raw callee block conversion of a local that also
   feeds an already-converted one — convert it, leave the raw site's

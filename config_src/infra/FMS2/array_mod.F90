@@ -29,7 +29,7 @@ module array_mod
   !< Type LogicalArray_C struct for C++ bridge layer
   type, bind(C) :: LogicalArray_C
      type(c_ptr) :: data               !< Storage pointer for array container
-     type(c_ptr) :: shape              !< An array of dinmension extents
+    type(c_ptr) :: shape              !< An array of dimension extents
      type(c_ptr) :: lb                 !< Lower bounds
      type(c_ptr) :: ub                 !< Upper bounds
      integer(c_int) :: rank            !< The number of dimensions
@@ -44,6 +44,7 @@ module array_mod
    contains
      procedure :: allocReal                    !< Allocate memory in container
      procedure :: freeReal                     !< Deallocates memory from a container
+     procedure :: rebound => reboundReal       !< Change the bounds without reallocating
      procedure :: associated => isAssociatedReal !< True if the container holds allocated data
      procedure :: viewReal1D, viewReal2D, &    !< Associates a Fortran pointer to an array container
                   viewReal3D, viewReal4D
@@ -85,6 +86,7 @@ module array_mod
    contains
      procedure :: allocInt                   !< Allocates  memory in container
      procedure :: freeInt                    !< Deallocates memory from a container
+     procedure :: rebound => reboundInt      !< Change the bounds without reallocating
      procedure :: associated => isAssociatedInt !< True if the container holds allocated data
      procedure ::  viewInt1D,  viewInt2D, &   !< Associates a Fortran pointer to an array container
                    viewInt3D,  viewInt4D
@@ -123,6 +125,7 @@ module array_mod
    contains
      procedure :: allocLogical                   !< Allocates memory in container
      procedure :: freeLogical                    !< Deallocates memory from a container
+     procedure :: rebound => reboundLogical      !< Change the bounds without reallocating
      procedure :: associated => isAssociatedLogical !< True if the container holds allocated data
      procedure ::  viewLogical1D,  viewLogical2D, &   !< Associates a Fortran pointer to an array container
                    viewLogical3D,  viewLogical4D
@@ -135,7 +138,7 @@ module array_mod
      procedure :: copy2ALogical1D, copy2ALogical2D, & !< Copy data from a Fortran array to a container
                   copy2ALogical3D, copy2ALogical4D, &
                   copy2ALogical0D
-     generic :: copy2F =>                 &       !< Generic interface for copy to Fortran arrayc
+    generic :: copy2F =>                 &       !< Generic interface for copy to Fortran array
                 copy2FLogical1D, copy2FLogical2D, &
                 copy2FLogical3D, copy2FLogical4D
      generic :: copy2Array => copy2ALogical0D, &   !< Generic interface for copy to array container
@@ -150,8 +153,6 @@ module array_mod
                 allocViewLogical1D, allocViewLogical2D, &
                 allocViewLogical3D, allocViewLogical4D
      generic   :: free => freeLogical          !< Generic interface for deallocate
-     procedure :: write_binary => write_binaryLogical  !< write variable to a binary file
-     procedure :: read_binary => read_binaryLogical     !< read variable from a binary file
   end type LogicalArray_t
 
 contains
@@ -255,106 +256,6 @@ subroutine read_binary(this, unit)
   endif
 
 end subroutine read_binary
-
-!< This subroutine writes an LogicalArray_t variable to a binary file
-subroutine write_binaryLogical(this, unit)
-  class(LogicalArray_t), intent(in) :: this  !< The LogicalArray_t variable to write to disk
-  integer,               intent(in) :: unit  !< The file unit
-
-  ! local variables
-  integer :: i
-  integer :: n
-
-  ! --- Null case ---
-  if (.not. associated(this%data)) then
-    write(unit) -1   ! rank = -1 signals null
-    return
-  endif
-
-  ! --- Rank ---
-  n = this%rank
-  write(unit) n
-
-  ! --- Write shape ---
-  do i=1,n
-    write(unit) this%shape(i)
-  enddo
-
-  ! --- Write bounds ---
-  do i=1,n
-    write(unit) this%lb(i)
-    write(unit) this%ub(i)
-  enddo
-
-  ! --- Write data size ---
-  write(unit) size(this%data)
-
-  ! --- Write payload ---
-  write(unit) this%data
-
-end subroutine write_binaryLogical
-
-!< This subroutine reads an LogicalArray_t variable from a binary file
-subroutine read_binaryLogical(this, unit)
-  class(LogicalArray_t), intent(inout) :: this  !< The LogicalArray_t variable to read from disk
-  integer,               intent(in)    :: unit  !< the file unit
-
-  ! local variables
-  integer :: i
-  integer :: n
-  integer :: total_size
-
-  ! --- Read rank ---
-  read(unit) n
-
-  ! --- Null case ---
-  if (n == -1) then
-    if (associated(this%data)) deallocate(this%data)
-    if (allocated(this%shape)) deallocate(this%shape)
-    if (allocated(this%lb)) deallocate(this%lb)
-    if (allocated(this%ub)) deallocate(this%ub)
-
-    nullify(this%data)
-    this%rank = 0
-    return
-  endif
-
-  this%rank = n
-
-  ! --- Clean old allocations ---
-  if (allocated(this%shape)) deallocate(this%shape)
-  if (allocated(this%lb)) deallocate(this%lb)
-  if (allocated(this%ub)) deallocate(this%ub)
-  if (associated(this%data)) deallocate(this%data)
-
-  ! --- Allocate metadata ---
-  allocate(this%shape(n))
-  allocate(this%lb(n))
-  allocate(this%ub(n))
-
-  ! --- Read shape ---
-  do i=1,n
-    read(unit) this%shape(i)
-  enddo
-
-  ! --- Read bounds ---
-  do i=1,n
-    read(unit) this%lb(i)
-    read(unit) this%ub(i)
-  enddo
-
-  ! --- Read data size ---
-  read(unit) total_size
-
-  ! --- Allocate and read data ---
-  if (total_size > 0) then
-    allocate(this%data(total_size))
-    read(unit) this%data
-  else
-    nullify(this%data)
-  endif
-
-end subroutine read_binaryLogical
 
 !< Function to convert a Fortran structure to a C structure
 !function to_c_Real(this) result(cdesc)
@@ -1017,7 +918,7 @@ subroutine allocLogical(this, dims,lb,ub,source)
   allocate(this%data(product(this%shape)))
 
   ! initialize the variable
-  ! Note this this is a CPU only assignment.
+  ! Note that this is a CPU only assignment.
   ! It will not work correctly on the GPU
   if(present(source)) call this%copy2Array(source)
 
@@ -1033,6 +934,27 @@ subroutine freeReal(this)
   this%rank = 0
 end subroutine freeReal
 
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundReal(this, lb, ub)
+  class(RealArray_t), intent(inout) :: this  !< The array container to rebound
+  integer,            intent(in)    :: lb(:) !< New lower bounds
+  integer,            intent(in)    :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundReal: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundReal: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundReal: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundReal: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundReal
+
 subroutine freeInt(this)
   class(IntArray_t), intent(inout) :: this  !< The array container to deallocate
 
@@ -1043,6 +965,27 @@ subroutine freeInt(this)
   this%rank = 0
 end subroutine freeInt
 
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundInt(this, lb, ub)
+  class(IntArray_t), intent(inout) :: this  !< The array container to rebound
+  integer, intent(in) :: lb(:) !< New lower bounds
+  integer, intent(in) :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundInt: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundInt: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundInt: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundInt: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundInt
+
 subroutine freeLogical(this)
   class(LogicalArray_t), intent(inout) :: this  !< The array container to deallocate
 
@@ -1052,6 +995,27 @@ subroutine freeLogical(this)
   if (allocated(this%ub))    deallocate(this%ub)
   this%rank = 0
 end subroutine freeLogical
+
+!> Change the index bounds of an already allocated container without reallocating its storage.
+!! The new extents must not hold more elements than were allocated.  The contents are not
+!! moved, so values stored under the old bounds are not preserved at the same indices.
+subroutine reboundLogical(this, lb, ub)
+  class(LogicalArray_t), intent(inout) :: this  !< The array container to rebound
+  integer, intent(in) :: lb(:) !< New lower bounds
+  integer, intent(in) :: ub(:) !< New upper bounds
+
+  if (.not. associated(this%data)) call MOM_err(FATAL, "reboundLogical: container not allocated")
+  if (size(lb) /= this%rank .or. size(ub) /= this%rank) &
+    call MOM_err(FATAL, "reboundLogical: size of lb and ub must match the rank")
+  if (any(ub(:) < lb(:) - 1)) call MOM_err(FATAL, "reboundLogical: negative extent")
+  if (product(ub(:) - lb(:) + 1) > size(this%data)) &
+    call MOM_err(FATAL, "reboundLogical: new extents exceed the allocated storage")
+
+  this%lb(:)    = lb(:)
+  this%ub(:)    = ub(:)
+  this%shape(:) = ub(:) - lb(:) + 1
+
+end subroutine reboundLogical
 
 pure function isAssociatedReal(this) result(is_assoc)
   class(RealArray_t), intent(in) :: this  !< The array container to query
@@ -1440,7 +1404,7 @@ subroutine allocViewLogical1D(this, a, dims, lb, ub, source)
    integer, intent(in), optional :: dims(:) !< Dimensions (1-indexed)
    integer, intent(in), optional :: lb(:)   !< Lower bounds
    integer, intent(in), optional :: ub(:)   !< Upper bounds
-   logical, intent(in), optional :: source  !< Initial value foer all elements
+   logical, intent(in), optional :: source  !< Initial value for all elements
 
    ! allocate the memory
    call this%allocLogical(dims=dims, lb=lb, ub=ub, source=source)

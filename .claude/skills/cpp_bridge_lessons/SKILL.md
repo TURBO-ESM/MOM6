@@ -1,6 +1,6 @@
 ---
 name: cpp_bridge_lessons
-version: "0.3"
+version: "0.3.2"
 description: Reference material for wrapping a MOM6 Fortran subroutine in a runtime-dispatched C++/AMReX bridge -- type-mapping tables, code templates, naming conventions, and recurring pitfalls, organized in numbered sections §1-§17. Companion to the generate_cpp_bridge skill, which cites these sections by number (e.g. "lessons.md §12") throughout its procedure. Invoke once near the start of a session that will run generate_cpp_bridge one or more times; not needed again per-subroutine within that session.
 user-invocable: true
 ---

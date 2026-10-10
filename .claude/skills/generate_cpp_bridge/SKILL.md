@@ -1,6 +1,6 @@
 ---
 name: generate_cpp_bridge
-version: "0.3"
+version: "0.3.2"
 description: Wrap an already-container-based MOM6 Fortran subroutine in a runtime-dispatched shim that selects between (a) the original Fortran code, (b) a binary capture mode that records inputs+outputs to disk for offline validation, and (c) a C++/AMReX bridge invoked through bind(C). Use when porting any MOM6 kernel to AMReX while keeping the Fortran truth available as a numerical reference. Requires the target subroutine's array dummies to already be RealArray_t / IntArray_t -- run convert_array_containers first. Mirrors the pattern established in TURBO-ESM/MOM6 PR #15.
 user-invocable: true
 argument-hint: <work-directory> <function-name> [--enable_src_validate] [--enable_git_commit] [--disable_git_commit]
@@ -341,7 +341,7 @@ holds the template or rationale.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version number for this whole skill family,
 not just this one skill. If the file doesn't already have one, add it
 as its own line immediately after the license/header comment block,
@@ -351,7 +351,7 @@ than adding a second line. Deliberately grep-able
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file this skill touches,
+- Never skip the `!!SKILLS: 0.3.2` marker on a file this skill touches,
   and never add a second marker line if one already exists.
 - Do not change the public name of `$1`, or its argument list at all —
   the shim inherits the converted subroutine's container signature

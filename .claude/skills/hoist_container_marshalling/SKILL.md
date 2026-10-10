@@ -1,6 +1,6 @@
 ---
 name: hoist_container_marshalling
-version: "0.3"
+version: "0.3.2"
 description: Reduce redundant %alloc/%free/%copy2F/%copy2Array churn in a MOM6 subroutine that already marshals RealArray_t/IntArray_t containers around calls to converted descendants (a Case-A caller, in convert_array_containers terms), and group the surviving alloc calls before -- and free/copy-back calls after -- the block of descendant calls, so that block reads and profiles as pure computation rather than memory bookkeeping. Use this on a subroutine that already has containers. The eligibility check is per-container, not per-subroutine: a container whose call sequence touches a still-raw callee, or whose alloc/free is guarded by one of the subroutine's own optional raw array dummies, is entangled and stays exactly as it is -- but that only excludes that one container, not the whole subroutine, from hoisting; every other container is grouped and simplified normally (Step 1). An entangled container is named as a follow-up (convert_array_containers on the raw callee, or convert_optional_args_to_containers on the optional dummy), the same way convert_array_containers itself defers a hoisting candidate rather than solving it inline. It never converts a new raw array, and it never touches a callee's signature or body. Best applied once every container conversion feeding into this subroutine is settled and every call site inside it is visible in one pass -- exactly the moment convert_array_containers' own Step 8/10 "hoisting candidate" deferral points to.
 user-invocable: true
 argument-hint: <work-directory> <function-name> [--enable_git_commit] [--disable_git_commit]
@@ -155,6 +155,14 @@ call h_in_a%copy2Array(h)
 Requires the container's shape to be identical across every use —
 confirm this from the declarations, not by assumption.
 
+**Variant: alloc/free inside a loop where only the bounds move.** This is per-tile scratch
+whose shape is fixed but whose index bounds track the tile, e.g. `lb(3) = k_start`.
+- Allocate once before the loop for the largest iteration, then inside the loop call
+  `%rebound(lb=…, ub=…)` and re-`%view` (lessons §4.5a). Free once after the loop.
+- Any `!$omp target enter/exit data` for those arrays moves out of the loop with the
+  alloc/free, **only if the user agrees**; otherwise leave the directives where they are.
+- Worked example: `CorAdCalc_TR`'s 11 tile scratch containers.
+
 ### 3. Two containers are one continuous value — merge them
 
 The deepest form of this pattern, and easiest to miss: if container `A`
@@ -303,7 +311,7 @@ remaining exception, called out explicitly in the Step 5 report.
 
 ## Versioning marker
 
-Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3`
+Every Fortran file this skill creates or modifies gets a `!!SKILLS: 0.3.2`
 marker line — the shared version number for this whole skill family,
 not just this one skill. If the file doesn't already have one, add it
 as its own line immediately after the license/header comment block,
@@ -313,7 +321,7 @@ than adding a second line. Deliberately grep-able
 
 ## Hard rules
 
-- Never skip the `!!SKILLS: 0.3` marker on a file this skill touches,
+- Never skip the `!!SKILLS: 0.3.2` marker on a file this skill touches,
   and never add a second marker line if one already exists.
 - Never hoist a container's `%alloc`/`%free`/`%copy2F` across an
   entanglement point tagged in Step 1 — leave it exactly where it is,
