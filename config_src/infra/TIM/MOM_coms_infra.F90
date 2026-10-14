@@ -9,10 +9,12 @@ use iso_fortran_env, only : int32, int64
 
 use mpp_mod, only : mpp_broadcast
 use mpp_mod, only : mpp_sum, mpp_max, mpp_min, mpp_sync_self
+use mpp_mod, only : mpp_error, WARNING
 use memutils_mod, only : print_memuse_stats
 use fms_mod, only : fms_end, fms_init
 use amrex_base_module, only: amrex_init, amrex_finalize
 use tim_coms_infra_interface, only: tim_chksum
+use turbotmp_bridge_c_types, only: RealArray_C
 
 use MOM_coms_helpers, only : PE_here, root_PE, num_PEs, set_rootPE
 use MOM_coms_helpers, only : Set_PElist, Get_PElist, sync_PEs
@@ -303,7 +305,11 @@ function field_chksum_real_0d(field, pelist, mask_val) result(chksum)
   real,    optional, intent(in) :: mask_val   !< FMS mask value
   integer(kind=int64) :: chksum               !< checksum of array
 
-  chksum = tim_chksum(field, pelist, mask_val)
+  if(present(pelist)) then
+    call mpp_error(WARNING, 'field_chksum_real_0d: pelist argument is not supported; the specific PE list is ignored')
+  end if
+
+  chksum = tim_chksum(field, mask_val)
 end function field_chksum_real_0d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -312,9 +318,18 @@ function field_chksum_real_1d(field, pelist, mask_val) result(chksum)
   real, dimension(:), intent(in) :: field     !< Input array
   integer,  optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,     optional, intent(in) :: mask_val  !< FMS mask value
-  integer(kind=int64) :: chksum               !< checksum of array
+  integer(kind=int64)            :: chksum               !< checksum of array
+  type(RealArray_t), target      :: field_arr
 
-  chksum = tim_chksum(field, pelist, mask_val)
+  if(present(pelist)) then
+    call mpp_error(WARNING, 'field_chksum_real_1d: pelist argument is not supported; the specific PE list is ignored')
+  end if
+
+  call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
+
+  chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_1d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -324,8 +339,17 @@ function field_chksum_real_2d(field, pelist, mask_val) result(chksum)
   integer,    optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,       optional, intent(in) :: mask_val  !< FMS mask value
   integer(kind=int64) :: chksum                 !< checksum of array
+  type(RealArray_t), target      :: field_arr
 
-  chksum = tim_chksum(field, pelist, mask_val)
+  if(present(pelist)) then
+    call mpp_error(WARNING, 'field_chksum_real_2d: pelist argument is not supported; the specific PE list is ignored')
+  end if
+
+  call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
+
+  chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_2d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -335,8 +359,17 @@ function field_chksum_real_3d(field, pelist, mask_val) result(chksum)
   integer,      optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,         optional, intent(in) :: mask_val  !< FMS mask value
   integer(kind=int64) :: chksum               !< checksum of array
+  type(RealArray_t), target      :: field_arr
 
-  chksum = tim_chksum(field, pelist, mask_val)
+  if(present(pelist)) then
+    call mpp_error(WARNING, 'field_chksum_real_3d: pelist argument is not supported; the specific PE list is ignored')
+  end if
+
+  call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
+
+  chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_3d
 
 !> Compute a checksum for a field distributed over a PE list.  If no PE list is
@@ -346,8 +379,17 @@ function field_chksum_real_4d(field, pelist, mask_val) result(chksum)
   integer,        optional, intent(in) :: pelist(:) !< PE list of ranks to checksum
   real,           optional, intent(in) :: mask_val  !< FMS mask value
   integer(kind=int64) :: chksum               !< checksum of array
+  type(RealArray_t), target      :: field_arr
 
-  chksum = tim_chksum(field, pelist, mask_val)
+  if(present(pelist)) then
+    call mpp_error(WARNING, 'field_chksum_real_4d: pelist argument is not supported; the specific PE list is ignored')
+  end if
+
+  call field_arr%alloc(lb=LBOUND(field), ub=UBOUND(field), source=field)
+
+  chksum = tim_chksum(field_arr%to_c_Real(), mask_val)
+
+  call field_arr%free()
 end function field_chksum_real_4d
 
 ! sum_across_PEs wrappers
