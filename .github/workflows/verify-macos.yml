@@ -11,6 +11,8 @@ env:
   FC: gfortran
   MOM_TARGET_SLUG: ${{ github.repository }}
   MOM_TARGET_LOCAL_BRANCH: ${{ github.base_ref }}
+  # Build system for the MOM6 executables: autoconf or cmake (see .testing/Makefile)
+  BUILDSYS: autoconf
 
 jobs:
   # Executables
@@ -24,10 +26,7 @@ jobs:
       - uses: ./.github/actions/macos-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with symmetric indexing
         run: make -C .testing -j build/symmetric/MOM6
@@ -50,10 +49,7 @@ jobs:
       - uses: ./.github/actions/macos-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with asymmetric indexing
         run: make -C .testing -j build/asymmetric/MOM6
@@ -76,10 +72,7 @@ jobs:
       - uses: ./.github/actions/macos-setup/
 
       - name: Compile dependencies
-        run: |
-          make -C .testing -j build/deps/lib/libFMS.a
-          make -C .testing -j PKG= build/deps/lib/libgsw.a
-          make -C .testing -j PKG= build/deps/lib/libcvmix.a
+        run: make -C .testing -j PKG= deps
 
       - name: Compile MOM6 with bit-reproducible optimization
         run: make -C .testing -j build/repro/MOM6
@@ -95,6 +88,9 @@ jobs:
 
   build-openmp:
     runs-on: macOS-latest
+    # Not yet supported by the CMake build
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +118,9 @@ jobs:
   build-target:
     if: github.event_name == 'pull_request'
     runs-on: macOS-latest
+    # Built by the target codebase's own .testing Makefile
+    env:
+      BUILDSYS: autoconf
 
     steps:
       - uses: actions/checkout@v4
