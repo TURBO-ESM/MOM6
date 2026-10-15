@@ -565,6 +565,41 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   type(wave_parameters_CS), &
                    optional, pointer     :: Waves !< Container for wave/Stokes information
 
+  call vertvisc_TR(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
+                   taux_bot, tauy_bot, fpmix, Waves)
+
+end subroutine vertvisc
+
+!> The implementation of vertvisc (the root of its call tree).
+subroutine vertvisc_TR(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
+                       taux_bot, tauy_bot, fpmix, Waves)
+  type(ocean_grid_type),   intent(in)    :: G      !< Ocean grid structure
+  type(verticalGrid_type), intent(in)    :: GV     !< Ocean vertical grid structure
+  type(unit_scale_type),   intent(in)    :: US     !< A dimensional unit scaling type
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
+                           intent(inout) :: u      !< Zonal velocity [L T-1 ~> m s-1]
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
+                           intent(inout) :: v      !< Meridional velocity [L T-1 ~> m s-1]
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: h      !< Layer thickness [H ~> m or kg m-2]
+  type(mech_forcing),    intent(in)      :: forces !< A structure with the driving mechanical forces
+  type(vertvisc_type),   intent(inout)   :: visc   !< Viscosities and bottom drag
+  real,                  intent(in)      :: dt     !< Time increment [T ~> s]
+  type(ocean_OBC_type),  pointer         :: OBC    !< Open boundary condition structure
+  type(accel_diag_ptrs), intent(inout)   :: ADp    !< Accelerations in the momentum
+                                                   !! equations for diagnostics
+  type(cont_diag_ptrs),  intent(inout)   :: CDp    !< Continuity equation terms
+  type(vertvisc_CS)                      :: CS     !< Vertical viscosity control structure
+  real, dimension(SZIB_(G),SZJ_(G)), &
+                   optional, intent(out) :: taux_bot !< Zonal bottom stress from ocean to
+                                                     !! rock [R L Z T-2 ~> Pa]
+  real, dimension(SZI_(G),SZJB_(G)), &
+                   optional, intent(out) :: tauy_bot !< Meridional bottom stress from ocean to
+                                                     !! rock [R L Z T-2 ~> Pa]
+  logical,         optional, intent(in)  :: fpmix !< fpmix along Eulerian shear
+  type(wave_parameters_CS), &
+                   optional, pointer     :: Waves !< Container for wave/Stokes information
+
   ! Fields from forces used in this subroutine:
   !   taux: Zonal wind stress [R L Z T-2 ~> Pa].
   !   tauy: Meridional wind stress [R L Z T-2 ~> Pa].
@@ -1179,13 +1214,34 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
     endif
   endif
 
-end subroutine vertvisc
+end subroutine vertvisc_TR
 
 
 !> Calculate the fraction of momentum originally in a layer that remains in the water column
 !! after a time-step of viscosity, equivalently the fraction of a time-step's worth of
 !! barotropic acceleration that a layer experiences after viscosity is applied.
 subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
+  type(ocean_grid_type), intent(in)   :: G    !< Ocean grid structure
+  type(verticalGrid_type), intent(in) :: GV   !< Ocean vertical grid structure
+  type(vertvisc_type),   intent(in)   :: visc !< Viscosities and bottom drag
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
+                         intent(inout) :: visc_rem_u !< Fraction of a time-step's worth of a
+                                              !! barotropic acceleration that a layer experiences after
+                                              !! viscosity is applied in the zonal direction [nondim]
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
+                         intent(inout) :: visc_rem_v !< Fraction of a time-step's worth of a
+                                              !! barotropic acceleration that a layer experiences after
+                                              !! viscosity is applied in the meridional direction [nondim]
+  real,                  intent(in)    :: dt  !< Time increment [T ~> s]
+  type(unit_scale_type), intent(in)    :: US  !< A dimensional unit scaling type
+  type(vertvisc_CS)                    :: CS  !< Vertical viscosity control structure
+
+  call vertvisc_remnant_TR(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
+
+end subroutine vertvisc_remnant
+
+!> The implementation of vertvisc_remnant (the root of its call tree).
+subroutine vertvisc_remnant_TR(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
   type(ocean_grid_type), intent(in)   :: G    !< Ocean grid structure
   type(verticalGrid_type), intent(in) :: GV   !< Ocean vertical grid structure
   type(vertvisc_type),   intent(in)   :: visc !< Viscosities and bottom drag
@@ -1290,13 +1346,39 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
     call uvchksum("visc_rem_[uv]", visc_rem_u, visc_rem_v, G%HI, haloshift=0, &
                   scalar_pair=.true.)
   endif
-end subroutine vertvisc_remnant
+end subroutine vertvisc_remnant_TR
 
 
 !> Calculate the coupling coefficients (CS%a_u, CS%a_v, CS%a_u_gl90, CS%a_v_gl90)
 !! and effective layer thicknesses (CS%h_u and CS%h_v) for later use in the
 !! applying the implicit vertical viscosity via vertvisc().
 subroutine vertvisc_coef(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, VarMix)
+  type(ocean_grid_type),   intent(in)    :: G      !< Ocean grid structure
+  type(verticalGrid_type), intent(in)    :: GV     !< Ocean vertical grid structure
+  type(unit_scale_type),   intent(in)    :: US     !< A dimensional unit scaling type
+  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: u      !< Zonal velocity [L T-1 ~> m s-1]
+  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
+                           intent(in)    :: v      !< Meridional velocity [L T-1 ~> m s-1]
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: h      !< Layer thickness [H ~> m or kg m-2]
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: dz     !< Vertical distance across layers [Z ~> m]
+  type(mech_forcing),      intent(in)    :: forces !< A structure with the driving mechanical forces
+  type(vertvisc_type),     intent(in)    :: visc   !< Viscosities and bottom drag
+  type(thermo_var_ptrs),   intent(in)    :: tv     !< A structure containing pointers to any available
+                                                   !! thermodynamic fields.
+  real,                    intent(in)    :: dt     !< Time increment [T ~> s]
+  type(vertvisc_CS),       intent(inout) :: CS     !< Vertical viscosity control structure
+  type(ocean_OBC_type),    pointer       :: OBC    !< Open boundary condition structure
+  type(VarMix_CS),         intent(in) :: VarMix !< Variable mixing coefficients
+
+  call vertvisc_coef_TR(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, VarMix)
+
+end subroutine vertvisc_coef
+
+!> The implementation of vertvisc_coef (the root of its call tree).
+subroutine vertvisc_coef_TR(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, VarMix)
   type(ocean_grid_type),   intent(in)    :: G      !< Ocean grid structure
   type(verticalGrid_type), intent(in)    :: GV     !< Ocean vertical grid structure
   type(unit_scale_type),   intent(in)    :: US     !< A dimensional unit scaling type
@@ -2096,7 +2178,7 @@ subroutine vertvisc_coef(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, 
   if (allocated(hML_u)) deallocate(hML_u)
   if (allocated(hML_v)) deallocate(hML_v)
 
-end subroutine vertvisc_coef
+end subroutine vertvisc_coef_TR
 
 !> Calculate the 'coupling coefficient' (a_cpl) at the interfaces.
 !! If BOTTOMDRAGLAW is defined, the minimum of Hbbl and half the adjacent
