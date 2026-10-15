@@ -5,7 +5,7 @@
 # Posts/updates a PR comment summarizing GPU-port coverage progress, and publishes the
 # line-by-line HTML report to GitHub Pages: under pr-<number>/ for a PR, or under
 # porting_progress/ for a push to dev/gpu (i.e. once a PR merges). Split out from
-# verify-linux.yml's gpu-port-report job on purpose: that job checks out and runs a PR's
+# the gpu-port-report job (in verify-linux-tests.yml, called by verify-linux.yml) on purpose: that job checks out and runs a PR's
 # code (which may come from a fork) and so must stay read-only, while commenting and
 # pushing to gh-pages needs write access. workflow_run always executes with the base
 # repository's permissions and never checks out the triggering PR's code, so it's the
