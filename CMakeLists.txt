@@ -45,12 +45,9 @@ if(NOT TARGET TURBO::infra_r8)
         if(_TIM_module_dir)
             list(APPEND CMAKE_MODULE_PATH "${_TIM_module_dir}")
         endif()
-        # MOM_BRIDGE is required, not optional: this branch's
-        # src/core/MOM_continuity_PPM.F90 calls the bridge unconditionally under
-        # TIM (see src/CMakeLists.txt). Asking for it as a component means a TIM
-        # built without it fails here, with the component named, instead of at
-        # link time as undefined turbotmp_*_bridge references.
-        find_package(TIM REQUIRED COMPONENTS R8 MOM_BRIDGE)
+        # The MOM C++ bridge this branch calls under TIM comes from protoMOMxx,
+        # not TIM; src/CMakeLists.txt finds it.
+        find_package(TIM REQUIRED COMPONENTS R8)
         add_library(turbo_infra_r8 INTERFACE)
         target_link_libraries(turbo_infra_r8 INTERFACE TIM::tim_r8)
     else()

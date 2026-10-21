@@ -1,16 +1,13 @@
 module box_mod
   use iso_c_binding, only : c_ptr, c_loc, c_int, c_null_ptr
   use MOM_error_infra, only : MOM_err, FATAL
+  ! Box_C comes from TIM so this build has one definition of it. It is
+  ! re-exported below so callers keep using box_mod.
+  use turbotmp_bridge_c_types, only: Box_C
   implicit none
   private
 
   public :: Box_t, Box_c
-
-  !< Box struct for C bridge
-  type, bind(C) :: Box_C
-     type(c_ptr) :: idxS   !< start index of a box
-     type(c_ptr) :: idxE   !< end index of a box
-  end type Box_C
 
   !< Class box_t defines an iteration index range
   type :: Box_T

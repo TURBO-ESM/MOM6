@@ -28,18 +28,32 @@ target_link_libraries(mom6_ocean
 # The backend is the one thing that genuinely varies: FMS2 cannot provide
 # turbotmp_*_bridge, so under FMS2 the branches must stay compiled out.
 #
-# TIM::mom_bridge is linked here, on the target whose sources call it, rather than
-# onto the infra interface library: when turbo-stack builds MOM6 with
-# add_subdirectory() it defines TURBO::infra_r8 itself, and MOM6's whole standalone
-# dependency block is skipped. Linking here works either way.
+# The bridge is protoMOMxx::mom_bridge, from an installed protoMOMxx (built
+# against the same TIM). It is found and linked here, on the target whose sources
+# call it, rather than in the top-level dependency block or onto the infra
+# interface library: when turbo-stack builds MOM6 with add_subdirectory() it
+# defines TURBO::infra_r8 itself, and MOM6's whole standalone dependency block is
+# skipped. Doing it here works either way. The kernels (protoMOMxx::mom_kernels)
+# come in through the bridge's link interface and are not linked directly.
+#
+# MOM_BRIDGE is required, not optional: this branch's
+# src/core/MOM_continuity_PPM.F90 calls the bridge unconditionally under TIM.
+# Asking for it as a component means a missing bridge fails here, with the
+# component named, instead of at link time as undefined turbotmp_*_bridge
+# references.
 if(MOM6_INFRA STREQUAL "TIM")
-    if(NOT TARGET TIM::mom_bridge)
+    if(NOT TARGET protoMOMxx::mom_bridge)
+        find_package(protoMOMxx REQUIRED COMPONENTS MOM_BRIDGE)
+    endif()
+    if(NOT TARGET protoMOMxx::mom_bridge)
         message(FATAL_ERROR
-            "MOM6_INFRA=TIM, but the TIM in use does not provide TIM::mom_bridge. "
-            "Rebuild TIM with -DTIM_ENABLE_MOM_BRIDGE=ON.")
+            "MOM6_INFRA=TIM, but the protoMOMxx in use does not provide "
+            "protoMOMxx::mom_bridge. Build and install protoMOMxx with "
+            "-DPROTOMOM_INSTALL=ON (and PROTOMOM_MOM_BRIDGE=ON) and put its "
+            "install prefix on CMAKE_PREFIX_PATH.")
     endif()
     target_compile_definitions(mom6_ocean PRIVATE _TIM)
-    target_link_libraries(mom6_ocean PRIVATE TIM::mom_bridge)
+    target_link_libraries(mom6_ocean PRIVATE protoMOMxx::mom_bridge)
 endif()
 
 # I/O modules from src/framework/: they depend on grid (which also lives in

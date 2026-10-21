@@ -365,7 +365,10 @@ still showing `%dup` predates this and won't compile.
 
 ## 5. `Box_t` — iteration domain
 
-Defined in `config_src/infra/{FMS2,TIM}/box_mod.F90`, byte-identical.
+Defined in `config_src/infra/{FMS2,TIM}/box_mod.F90`. The two files are the
+same except for where `Box_C` comes from: FMS2's defines it, and TIM's
+imports it from TIM's `turbotmp_bridge_c_types` module and re-exports it.
+The `Box_t` API below is identical in both.
 `idxS(:)`/`idxE(:)` are `allocatable` and public; every binding is a
 plain `procedure ::` (no generics, one signature each).
 
@@ -482,7 +485,7 @@ layers.
   (`bxH0`, `bxQ0`), and builds U/V tile boxes by combining their i/j ranges.
 
 **On the C++ side** every array's own `lb` positions its `Array4`. See
-TIM `generate_amrex_code` lessons.md §7 #12: arrays with different
+protoMOMxx `generate_amrex_code` lessons.md §7 #12: arrays with different
 staggering in one kernel break silently if that's skipped.
 
 ---

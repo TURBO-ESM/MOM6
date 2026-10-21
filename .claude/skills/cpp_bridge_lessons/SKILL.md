@@ -146,6 +146,24 @@ serves as the value type passed in capture mode. The C-side struct is a
 fixed-layout POD of `c_ptr`s + an `integer(c_int) :: rank` so it can be
 declared identically in C++.
 
+Where the C-side types are defined depends on the infra layer:
+
+- **FMS2:** `config_src/infra/FMS2/array_mod.F90` and `box_mod.F90` define
+  them with `type, bind(C)` blocks like the one below. FMS2 builds have no
+  TIM.
+- **TIM:** `config_src/infra/TIM/array_mod.F90` and `box_mod.F90` define
+  none of them. They `use turbotmp_bridge_c_types` from TIM
+  (`tim/fortran/turbotmp_bridge_c_types.F90`), which defines `RealArray_C`,
+  `IntArray_C`, `LogicalArray_C` and `Box_C`, and re-export them in their
+  `public` lists. The C++ side includes the matching header,
+  `tim/cpp/turbotmp_bridge_c_types.h`.
+
+Both layers offer the same public names, so
+`use array_mod, only : RealArray_C` works on either. TIM's Fortran module and
+its C header must agree in component order and type for every struct:
+`bind(C)` matches components by position, not by name (the Fortran `rank` is
+the C `dim`), and nothing checks this at build or link time.
+
 ```fortran
 type, bind(C) :: RealArray_C
   type(c_ptr)    :: data        ! &this%data(1)
@@ -391,6 +409,15 @@ Fortran truth. This means:
 
 The TIM and FMS2 infras keep parallel implementations because a build
 selects exactly one infra layer; both must offer the same public symbols.
+TIM's `array_mod`/`box_mod` still offer `RealArray_C`, `LogicalArray_C` and
+`Box_C`, but no longer define them. They import them from TIM's
+`turbotmp_bridge_c_types` (§3.1). FMS2's define their own.
+
+The C++ side (kernels, `extern "C"` bridges, `turbotmp_helper`) lives in
+protoMOMxx under `src/mom_kernels/`, built as `protoMOMxx::mom_kernels` and
+`protoMOMxx::mom_bridge`. Under `MOM6_INFRA=TIM`, `src/CMakeLists.txt` finds
+it with `find_package(protoMOMxx REQUIRED COMPONENTS MOM_BRIDGE)` and links
+`protoMOMxx::mom_bridge` into `mom6_ocean`.
 
 ---
 
