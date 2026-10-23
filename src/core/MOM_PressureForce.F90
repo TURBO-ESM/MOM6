@@ -22,6 +22,7 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : thermo_var_ptrs, accel_diag_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use MOM_ALE, only: ALE_CS
+use array_mod, only : RealArray_t
 implicit none ; private
 
 #include <MOM_memory.h>
@@ -64,12 +65,29 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
                  optional, intent(out) :: eta  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
-  call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce, eta)
+  type(RealArray_t) :: pbce_a, eta_a
+
+  if (present(pbce)) call pbce_a%alloc(lb=LBOUND(pbce), ub=UBOUND(pbce), source=pbce)
+  if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
+
+  if (present(pbce) .and. present(eta)) then
+    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a, eta_a)
+  elseif (present(pbce)) then
+    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a=pbce_a)
+  elseif (present(eta)) then
+    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, eta_a=eta_a)
+  else
+    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm)
+  endif
+
+  if (present(pbce)) call pbce_a%copy2F(pbce)
+  if (present(eta)) call eta_a%copy2F(eta)
+  call pbce_a%free() ; call eta_a%free()
 
 end subroutine PressureForce
 
 !> The implementation of PressureForce (the root of its call tree).
-subroutine PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce, eta)
+subroutine PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a, eta_a)
   type(ocean_grid_type),   intent(in)  :: G    !< The ocean's grid structure
   type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
   type(unit_scale_type),   intent(in)  :: US   !< A dimensional unit scaling type
@@ -85,28 +103,28 @@ subroutine PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm,
   type(accel_diag_ptrs),   pointer     :: ADp !< Acceleration diagnostic pointers
   real, dimension(:,:),    pointer     :: p_atm !< The pressure at the ice-ocean or
                                                !! atmosphere-ocean interface [R L2 T-2 ~> Pa].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                 optional, intent(out) :: pbce !< The baroclinic pressure anomaly in each layer
+  type(RealArray_t), &
+                 optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
                                                !! due to eta anomalies [L2 T-2 H-1 ~> m s-2 or m4 s-2 kg-1].
-  real, dimension(SZI_(G),SZJ_(G)), &
-                 optional, intent(out) :: eta  !< The bottom mass used to calculate PFu and PFv,
+  type(RealArray_t), &
+                 optional, intent(inout) :: eta_a  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
   if (CS%Analytic_FV_PGF) then
     if (GV%Boussinesq) then
       call PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                   ALE_CSp, ADp, p_atm, pbce, eta)
+                                   ALE_CSp, ADp, p_atm, pbce_a, eta_a)
     else
       call PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                      ALE_CSp, ADp, p_atm, pbce, eta)
+                                      ALE_CSp, ADp, p_atm, pbce_a, eta_a)
     endif
   else
     if (GV%Boussinesq) then
       call PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                    p_atm, pbce, eta)
+                                    p_atm, pbce_a, eta_a)
     else
       call PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                       p_atm, pbce, eta)
+                                       p_atm, pbce_a, eta_a)
     endif
   endif
 
