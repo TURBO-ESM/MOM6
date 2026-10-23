@@ -82,8 +82,7 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
   real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean or
                                                                  !! atmosphere-ocean [R L2 T-2 ~> Pa].
-  type(RealArray_t), &
-                                    optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
+  type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                  !! each layer due to free surface height anomalies,
                                                                  !! [L2 T-2 H-1 ~> m s-2 or m4 kg-1 s-2].
   type(RealArray_t), optional, intent(inout) :: eta_a !< The total column mass used to calculate
@@ -683,7 +682,7 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star_a, n
                                                             !! to free surface height anomalies
                                                             !! [L2 T-2 H-1 ~> m s-2].
   type(RealArray_t), &
-                              optional, intent(in)  :: rho_star_a !< The layer densities (maybe compressibility
+                    optional, intent(in) :: rho_star_a !< The layer densities (maybe compressibility
                                                             !! compensated), times g/rho_0 [L2 Z-1 T-2 ~> m s-2].
   integer, intent(in) :: nkblock !< The number of vertical levels in each block for the variable density
                                  !! near-surface layer.  This is needed to determine whether rho_star is
