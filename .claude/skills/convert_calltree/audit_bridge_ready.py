@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Bridge-readiness audit for a convert_calltree campaign (Phase 2 exit test, SKILL.md Step 6b).
 
-Usage: audit_bridge_ready.py <file.F90> --targets a,b,... [--primitives c,d,...]
+Usage: audit_bridge_ready.py <file.F90> --targets a,b,... [--primitives c,d,...] [--forbid e,f,...]
 
   --targets     the Phase 3 bridge targets in the file
   --primitives  the per-point kernels the targets call (Step 2)
+  --forbid      extra calls that must not appear in a target's body, e.g. calls into other
+                modules that the plan routes through Fortran helpers (horizontal_viscosity:
+                calc_QG_slopes,calc_QG_Leith_viscosity,thickness_to_dz,barotropic_get_tav,
+                thickness_diffuse_get_KH,ZB2020_copy_gradient_and_thickness,ZB2020_lateral_stress)
 
 Example (vertvisc_family):
   audit_bridge_ready.py src/parameterizations/vertical/MOM_vert_friction.F90 \
@@ -12,9 +16,13 @@ Example (vertvisc_family):
       --primitives find_coupling_coef_k,find_coupling_coef,find_coupling_coef_gl90
 
 Checks, per Phase 3 target:
-  1. every dummy can cross bind(C) (container/box, non-pointer scalar, grid_core_type,
-     a derived type with a bind(C) mirror AND a converter, or the OBC pointer);
-  2. no Fortran-only work in the body (diagnostics, halo passes, checksums, reporting,
+  1. every dummy can cross bind(C) (container/box, non-pointer scalar, grid_core_type/grid_OBC_type,
+     a derived type with a bind(C) mirror, a converter AND a record_* capture helper, all three
+     covering every field of the type, the OBC pointer, or one opaque host-context
+     `type(c_ptr) :: host` dummy that reaches Fortran-only helpers);
+  2. no Fortran-only work in the body (diagnostics, halo passes incl. pass_var/pass_vector,
+     checksums, reporting, any --forbid call, %alloc/%free/%rebound of a dummy or a component of one
+     (local scratch containers are allowed),
      MOM_error, I/O, G%/GV%/US% references, SZ*_ macros, container %alloc/%free);
   3. every do concurrent iterates over a Box_t;
 and, for the per-column primitives:
@@ -29,6 +37,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('file')
 ap.add_argument('--targets', required=True)
 ap.add_argument('--primitives', default='')
+ap.add_argument('--forbid', default='')
 opts = ap.parse_args()
 src = open(opts.file).read()
 TARGETS = [t for t in opts.targets.split(',') if t]
@@ -39,6 +48,38 @@ converters = {}
 for m in re.finditer(r'^function (\w+_to_c)\((\w+)\) result\(\w+\)\n((?:.*\n){1,3})', src, re.M):
     t = re.search(r'type\((\w+)\)', m.group(3))
     if t: converters[t.group(1).lower()] = m.group(1)
+recorders = {}
+for m in re.finditer(r'^subroutine (record_\w+)\((.*?)\)\s*$(.*?)^end subroutine \1', src, re.M | re.S):
+    args = [a.strip().lower() for a in m.group(2).split(',')]
+    for d in re.finditer(r'type\((\w+)\)[^:\n]*::\s*(\w+)', m.group(3)):
+        if d.group(2).lower() in args[1:]:
+            recorders.setdefault(d.group(1).lower(), (m.group(1), d.group(2), m.group(3)))
+
+
+def type_fields(tn):
+    """Component names of derived type tn, lowercased, with a container's `_a` suffix dropped."""
+    m = re.search(r'^type\b[^\n]*::\s*' + tn + r'\b.*?^end type', src, re.M | re.S | re.I)
+    if not m: return None
+    out = []
+    for l in m.group(0).split('\n')[1:-1]:
+        l = re.sub(r'!.*', '', l)
+        if '::' in l and not re.match(r'\s*procedure', l, re.I):
+            out += [re.sub(r'_a$', '', v.split('=')[0].strip().lower()) for v in l.split('::')[1].split(',')]
+    return set(out)
+
+
+def group_gaps(tn, mc):
+    """Fields of tn missing from its mirror, converter or capture helper."""
+    gaps = []
+    tf, mf = type_fields(tn), type_fields(mc)
+    if tf != mf: gaps.append('mirror fields differ: %s' % sorted(tf ^ mf))
+    conv = re.search(r'^function ' + converters[tn] + r'\(.*?^end function', src, re.M | re.S).group(0)
+    set_ = {re.sub(r'_a$', '', f.lower()) for f in re.findall(r'cdesc%(\w+)\s*=', conv)}
+    if mf - set_: gaps.append('converter misses %s' % sorted(mf - set_))
+    name, arg, body = recorders[tn]
+    seen = {re.sub(r'_a$', '', f.lower()) for f in re.findall(arg + r'%(\w+)', body, re.I)}
+    if tf - seen: gaps.append('%s misses %s' % (name, sorted(tf - seen)))
+    return gaps
 
 
 def sub(name):
@@ -85,11 +126,16 @@ def classify(name, typ):
     if m:
         tn = m.group(1)
         if tn in ('realarray_t', 'intarray_t', 'logicalarray_t', 'box_t'): return True, 'container/box'
-        if tn == 'grid_core_type': return True, 'grid_core_C'
+        if tn in ('grid_core_type', 'grid_obc_type'): return True, 'persistent grid group, %C mirror'
         if tn == 'ocean_obc_type' and 'pointer' in tl: return True, 'OBC -> c_ptr'
+        if tn == 'c_ptr' and name.lower() == 'host': return True, 'host context -> c_ptr'
         mc = mirror_of(tn)
-        if mc and tn in converters: return True, 'mirror %s + %s' % (mc, converters[tn])
-        if mc: return False, 'mirror %s but no converter' % mc
+        if mc and tn in converters and tn in recorders:
+            gaps = group_gaps(tn, mc)
+            if gaps: return False, '; '.join(gaps)
+            return True, 'mirror %s + %s + %s' % (mc, converters[tn], recorders[tn][0])
+        if mc and tn not in converters: return False, 'mirror %s but no converter' % mc
+        if mc: return False, 'mirror %s + %s but no record_* capture helper' % (mc, converters[tn])
         return False, 'no bind(C) mirror for %s' % tn
     if re.match(r'(real|integer|logical)\b', tl):
         if 'dimension' in tl or 'pointer' in tl: return False, 'raw array/pointer'
@@ -98,8 +144,11 @@ def classify(name, typ):
     return False, 'unrecognized type'
 
 
+EXTRA = [re.escape(x.strip()) for x in opts.forbid.split(',') if x.strip()]
 FORBIDDEN = (r'\b(post_data|post_product\w*|query_averaging_enabled|create_group_pass|do_group_pass|'
-             r'\w*chksum|write_[uv]_accel|MOM_error|MOM_read_data|open|write)\s*\(')
+             r'pass_var|pass_vector|'
+             r'\w*chksum|write_[uv]_accel|MOM_error|MOM_read_data|open|write' +
+             ''.join('|' + x for x in EXTRA) + r')\s*\(')
 
 ok_all = True
 print('%-22s %-6s %-6s %-6s  details' % ('target', 'args', 'body', 'loops'))
@@ -113,9 +162,17 @@ for t in TARGETS:
     bad_body = sorted(set(re.findall(FORBIDDEN, code)))
     bad_body += sorted(set('%s%%' % x for x in re.findall(r'(?<![%\w])(G|GV|US)%\w+', code)))
     bad_body += sorted(set(re.findall(r'SZ[IJK]B?_\(\w+\)', code)))
-    bad_body += sorted(set(m + '()' for m in re.findall(r'%(alloc|free)\s*\(', code)))
+    # %alloc/%free/%rebound are Fortran-only, but only matter on data that crosses the bridge or
+    # persists: a dummy or a component of one.  Local scratch inside the Fortran implementation is
+    # allowed (the C++ side manages its own; CorAdCalc_TR precedent).
+    dummy_names = {n.lower() for n, _ in dummy_types(s)}
+    for base, op in re.findall(r'(?<![%\w])(\w+)(?:%\w+)*%(alloc|free|rebound)\s*\(', code):
+        if base.lower() in dummy_names:
+            bad_body.append('%s%%...%%%s()' % (base, op))
+    bad_body = sorted(set(bad_body))
     heads = re.findall(r'do concurrent \(([^\n]*)', code)
-    bad_loops = [h[:60] for h in heads
+    # A loop clipped by OBC segment bounds runs only with OBC active, which the C++ aborts on.
+    bad_loops = [h[:60] for h in heads if 'OBC%' not in h
                  if not all(re.match(r'\s*\w+\s*=\s*\w+%idxS\(\d\):\w+%idxE\(\d\)\s*$', r)
                             for r in re.split(r',(?![^()]*\))', h.split(')')[0] if False else
                                               re.sub(r'\)\s*(DO_LOCALITY.*)?$', '', h))
