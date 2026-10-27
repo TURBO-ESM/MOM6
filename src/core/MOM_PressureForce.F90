@@ -1,6 +1,7 @@
 ! This file is part of MOM6, the Modular Ocean Model version 6.
 ! See the LICENSE file for licensing information.
 ! SPDX-License-Identifier: Apache-2.0
+!!SKILLS: 0.3.2
 
 !> A thin wrapper for Boussinesq/non-Boussinesq forms of the pressure force calculation.
 module MOM_PressureForce
@@ -21,6 +22,9 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : thermo_var_ptrs, accel_diag_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use MOM_ALE, only: ALE_CS
+use MOM_grid_containers, only : grid_core_type, grid_core
+use array_mod, only : RealArray_t
+use box_mod, only : Box_t
 implicit none ; private
 
 #include <MOM_memory.h>
@@ -63,25 +67,95 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
                  optional, intent(out) :: eta  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
+  type(RealArray_t) :: h_a, PFu_a, PFv_a, p_atm_a, pbce_a, eta_a
+  type(grid_core_type), pointer :: Gcore ! Persistent copies of the core ocean grid fields
+  type(Box_t) :: bxH0  ! The h-point box of the whole column, [isc:iec, jsc:jec, 1:nz]
+  type(Box_t) :: bxQ0  ! The B-grid-index box of the whole column, [IscB:IecB, JscB:JecB, 1:nz]
+  type(Box_t) :: bxU0  ! The u-point box of the whole column, [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t) :: bxV0  ! The v-point box of the whole column, [isc:iec, JscB:JecB, 1:nz]
+
+  Gcore => grid_core(G)
+  call bxH0%safe_alloc(ndims=3) ; call bxQ0%safe_alloc(ndims=3)
+  call bxU0%safe_alloc(ndims=3) ; call bxV0%safe_alloc(ndims=3)
+  call bxH0%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  call bxQ0%set(idxS=[G%IscB,G%JscB,1], idxE=[G%IecB,G%JecB,GV%ke])
+  call bxU0%set(idxS=[G%IscB,G%jsc,1], idxE=[G%IecB,G%jec,GV%ke])
+  call bxV0%set(idxS=[G%isc,G%JscB,1], idxE=[G%iec,G%JecB,GV%ke])
+
+  call h_a%alloc(lb=LBOUND(h), ub=UBOUND(h), source=h)
+  call PFu_a%alloc(lb=LBOUND(PFu), ub=UBOUND(PFu), source=PFu)
+  call PFv_a%alloc(lb=LBOUND(PFv), ub=UBOUND(PFv), source=PFv)
+  if (associated(p_atm)) call p_atm_a%alloc(lb=LBOUND(p_atm), ub=UBOUND(p_atm), source=p_atm)
+  if (present(pbce)) call pbce_a%alloc(lb=LBOUND(pbce), ub=UBOUND(pbce), source=pbce)
+  if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
+
+  call PressureForce_TR(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                        ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+  call bxH0%free() ; call bxQ0%free()
+  call bxU0%free() ; call bxV0%free()
+
+  call PFu_a%copy2F(PFu)
+  call PFv_a%copy2F(PFv)
+  if (present(pbce)) call pbce_a%copy2F(pbce)
+  if (present(eta)) call eta_a%copy2F(eta)
+  call h_a%free() ; call PFu_a%free() ; call PFv_a%free() ; call p_atm_a%free()
+  call pbce_a%free() ; call eta_a%free()
+
+end subroutine PressureForce
+
+!> The implementation of PressureForce (the root of its call tree).
+subroutine PressureForce_TR(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                            ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+  type(Box_t),             intent(in)  :: bxH0 !< The h-point box of the whole column,
+                                               !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)  :: bxQ0 !< The B-grid-index box of the whole column,
+                                               !! [IscB:IecB, JscB:JecB, 1:nz]
+  type(Box_t),             intent(in)  :: bxU0 !< The u-point box of the whole column,
+                                               !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)  :: bxV0 !< The v-point box of the whole column,
+                                               !! [isc:iec, JscB:JecB, 1:nz]
+  type(ocean_grid_type),   intent(in)  :: G    !< The ocean's grid structure
+  type(grid_core_type),    intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
+  type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
+  type(unit_scale_type),   intent(in)  :: US   !< A dimensional unit scaling type
+  type(RealArray_t),       intent(in)  :: h_a  !< Layer thicknesses [H ~> m or kg m-2]
+  type(thermo_var_ptrs),   intent(in)  :: tv   !< A structure pointing to various thermodynamic
+                                               !! variables
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal pressure force acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional pressure force acceleration
+                                            !! [L T-2 ~> m s-2]
+  type(PressureForce_CS),  intent(inout) :: CS !< Pressure force control structure
+  type(ALE_CS),            pointer     :: ALE_CSp !< ALE control structure
+  type(accel_diag_ptrs),   pointer     :: ADp !< Acceleration diagnostic pointers
+  type(RealArray_t),       intent(in)  :: p_atm_a !< The pressure at the ice-ocean or
+                                               !! atmosphere-ocean interface [R L2 T-2 ~> Pa].
+  type(RealArray_t), &
+                 intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
+                                               !! due to eta anomalies
+                                               !! [L2 T-2 H-1 ~> m s-2 or m4 s-2 kg-1].
+  type(RealArray_t), &
+                 intent(inout) :: eta_a  !< The bottom mass used to calculate PFu and PFv,
+                                               !! [H ~> m or kg m-2], with any tidal contributions.
+
   if (CS%Analytic_FV_PGF) then
     if (GV%Boussinesq) then
-      call PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                   ALE_CSp, ADp, p_atm, pbce, eta)
+      call PressureForce_FV_Bouss(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, &
+                                  US, CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                      ALE_CSp, ADp, p_atm, pbce, eta)
+      call PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                     CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     endif
   else
     if (GV%Boussinesq) then
-      call PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                    p_atm, pbce, eta)
+      call PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                    CS%PressureForce_Mont, p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                       p_atm, pbce, eta)
+      call PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                       CS%PressureForce_Mont, p_atm_a, pbce_a, eta_a)
     endif
   endif
 
-end subroutine Pressureforce
+end subroutine PressureForce_TR
 
 !> Initialize the pressure force control structure
 subroutine PressureForce_init(Time, G, GV, US, param_file, diag, CS, ADp, SAL_CSp, tides_CSp)
