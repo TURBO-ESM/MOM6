@@ -90,10 +90,10 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
   type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                  !! atmosphere-ocean [R L2 T-2 ~> Pa].
-  type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                  !! each layer due to free surface height anomalies,
                                                                  !! [L2 T-2 H-1 ~> m s-2 or m4 kg-1 s-2].
-  type(RealArray_t), optional, intent(inout) :: eta_a !< The total column mass used to calculate
+  type(RealArray_t), intent(inout) :: eta_a !< The total column mass used to calculate
                                                                  !! PFu and PFv [H ~> kg m-2].
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
@@ -165,11 +165,11 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   call alpha_star_a%view(alpha_star)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
-  if (present(pbce_a)) call pbce_a%view(pbce)
-  if (present(eta_a)) call eta_a%view(eta)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
 
   use_p_atm = associated(p_atm)
-  is_split = present(pbce_a)
+  is_split = pbce_a%associated()
   use_EOS = associated(tv%eqn_of_state)
 
   if (.not.CS%initialized) call MOM_error(FATAL, &
@@ -198,7 +198,7 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
     p(i,j,K+1) = p(i,j,K) + GV%g_Earth * GV%H_to_RZ * h(i,j,k)
   enddo ; enddo ; enddo
 
-  if (present(eta_a)) then
+  if (eta_a%associated()) then
     Pa_to_H = 1.0 / (GV%g_Earth * GV%H_to_RZ)
     if (use_p_atm) then
       !$OMP parallel do default(shared)
@@ -349,7 +349,7 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   endif
 
   ! Note that ddM/dPb = alpha_star(i,j,1)
-  if (present(pbce_a)) then
+  if (pbce_a%associated()) then
     call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
     call Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
                            GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a, alpha_star_a)
@@ -431,10 +431,10 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
   type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                 !! atmosphere-ocean [R L2 T-2 ~> Pa].
-  type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                 !! each layer due to free surface height anomalies
                                                                 !! [L2 T-2 H-1 ~> m s-2].
-  type(RealArray_t), optional, intent(inout) :: eta_a !< Free surface height [H ~> m].
+  type(RealArray_t), intent(inout) :: eta_a !< Free surface height [H ~> m].
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
@@ -497,11 +497,11 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   call rho_star_a%view(rho_star)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
-  if (present(pbce_a)) call pbce_a%view(pbce)
-  if (present(eta_a)) call eta_a%view(eta)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
 
   use_p_atm = associated(p_atm)
-  is_split = present(pbce_a)
+  is_split = pbce_a%associated()
   use_EOS = associated(tv%eqn_of_state)
 
   if (.not.CS%initialized) call MOM_error(FATAL, &
@@ -626,7 +626,7 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
     enddo
   endif ! use_EOS
 
-  if (present(pbce_a)) then
+  if (pbce_a%associated()) then
     call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
     call Set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
                         GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, CS%Rho0, &
@@ -669,7 +669,7 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
     enddo
   endif ! use_EOS
 
-  if (present(eta_a)) then
+  if (eta_a%associated()) then
     ! eta is the sea surface height relative to a time-invariant geoid, for
     ! comparison with what is used for eta in btstep.  See how e was calculated
     ! about 200 lines above.
@@ -737,7 +737,7 @@ subroutine Set_pbce_Bouss(bxH0, bxQ0, e_a, tv, Gcore, isd, jsd, ke, H_to_Z, g_Ea
                                                             !! to free surface height anomalies
                                                             !! [L2 T-2 H-1 ~> m s-2].
   type(RealArray_t), &
-                    optional, intent(in) :: rho_star_a !< The layer densities (maybe compressibility
+                    intent(in) :: rho_star_a !< The layer densities (maybe compressibility
                                                             !! compensated), times g/rho_0 [L2 Z-1 T-2 ~> m s-2].
   integer, intent(in) :: nkblock !< The number of vertical levels in each block for the variable density
                                  !! near-surface layer.  This is needed to determine whether rho_star is
@@ -770,7 +770,7 @@ subroutine Set_pbce_Bouss(bxH0, bxQ0, e_a, tv, Gcore, isd, jsd, ke, H_to_Z, g_Ea
   call e_a%view(e) ; call pbce_a%view(pbce)
   call Gcore%meanSL%view(meanSL) ; call g_prime_a%view(g_prime)
   nullify(rho_star)
-  if (present(rho_star_a)) call rho_star_a%view(rho_star)
+  if (rho_star_a%associated()) call rho_star_a%view(rho_star)
 
   !$omp target data map(alloc: Ihtot)
   Isq = bxQ0%idxS(1) ; Ieq = bxQ0%idxE(1) ; Jsq = bxQ0%idxS(2) ; Jeq = bxQ0%idxE(2) ; nz = ke
@@ -780,7 +780,7 @@ subroutine Set_pbce_Bouss(bxH0, bxQ0, e_a, tv, Gcore, isd, jsd, ke, H_to_Z, g_Ea
   dz_neglect = dZ_subroundoff
 
   if (use_EOS) then
-    if (present(rho_star_a)) then
+    if (rho_star_a%associated()) then
       do concurrent (j=Jsq:Jeq+1)
         do concurrent (i=Isq:Ieq+1)
           Ihtot(i,j) = H_to_Z / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
@@ -885,7 +885,7 @@ subroutine Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv, isd, ke, g_Earth, H_to_RZ, H_s
   type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each
                                                           !! layer due to free surface height anomalies
                                                           !! [L2 H-1 T-2 ~> m4 kg-1 s-2].
-  type(RealArray_t), optional, intent(in) :: alpha_star_a !< The layer specific volumes
+  type(RealArray_t), intent(in) :: alpha_star_a !< The layer specific volumes
                                                           !! (maybe compressibility compensated) [R-1 ~> m3 kg-1].
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: p, pbce, alpha_star
@@ -919,7 +919,7 @@ subroutine Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv, isd, ke, g_Earth, H_to_RZ, H_s
 
   call p_a%view(p) ; call pbce_a%view(pbce) ; call Rlay_a%view(Rlay)
   nullify(alpha_star)
-  if (present(alpha_star_a)) call alpha_star_a%view(alpha_star)
+  if (alpha_star_a%associated()) call alpha_star_a%view(alpha_star)
 
   use_EOS = associated(tv%eqn_of_state)
 
@@ -927,7 +927,7 @@ subroutine Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv, isd, ke, g_Earth, H_to_RZ, H_s
   dp_neglect = g_Earth * H_to_RZ * H_subroundoff
 
   if (use_EOS) then
-    if (present(alpha_star_a)) then
+    if (alpha_star_a%associated()) then
       !$OMP parallel do default(shared)
       do j=Jsq,Jeq+1
         do i=Isq,Ieq+1

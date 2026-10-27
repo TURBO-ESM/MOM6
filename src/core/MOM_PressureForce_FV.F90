@@ -154,16 +154,17 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
   type(accel_diag_ptrs),                      pointer     :: ADp !< Acceleration diagnostic pointers
   type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean
                                                            !! or atmosphere-ocean interface [R L2 T-2 ~> Pa].
-  type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure
                                                            !! anomaly in each layer due to eta anomalies
                                                            !! [L2 T-2 H-1 ~> m4 s-2 kg-1].
-  type(RealArray_t), optional, intent(inout) :: eta_a !< The total column mass used to
+  type(RealArray_t), intent(inout) :: eta_a !< The total column mass used to
                                                            !! calculate PFu and PFv [H ~> kg m-2].
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
   type(RealArray_t) :: p_a, Rlay_a
+  type(RealArray_t) :: alpha_star_a_none
   real, dimension(:,:,:), contiguous, pointer :: p ! Interface pressure [R L2 T-2 ~> Pa].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), target :: &
     T_tmp, &    ! Temporary array of temperatures where layers that are lighter
@@ -306,8 +307,8 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
   call p_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call p_a%view(p)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
-  if (present(pbce_a)) call pbce_a%view(pbce)
-  if (present(eta_a)) call eta_a%view(eta)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
 
   if (.not.CS%initialized) call MOM_error(FATAL, &
        "MOM_PressureForce_FV_nonBouss: Module must be initialized before it is used.")
@@ -910,14 +911,15 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
     enddo
   endif
 
-  if (present(pbce_a)) then
+  if (pbce_a%associated()) then
     call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
     call set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
-                           GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a)
+                           GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a, &
+                           alpha_star_a=alpha_star_a_none)
     call Rlay_a%free()
   endif
 
-  if (present(eta_a)) then
+  if (eta_a%associated()) then
     Pa_to_H = 1.0 / (GV%g_Earth * GV%H_to_RZ)
     if (use_p_atm) then
       !$OMP parallel do default(shared)
@@ -1005,10 +1007,10 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   type(accel_diag_ptrs),                      pointer     :: ADp !< Acceleration diagnostic pointers
   type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean
                                                          !! or atmosphere-ocean interface [R L2 T-2 ~> Pa].
-  type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure
                                                          !! anomaly in each layer due to eta anomalies
                                                          !! [L2 T-2 H-1 ~> m s-2].
-  type(RealArray_t), optional, intent(inout) :: eta_a !< The sea-surface height used to
+  type(RealArray_t), intent(inout) :: eta_a !< The sea-surface height used to
                                                          !! calculate PFu and PFv [H ~> m], with any
                                                          !! tidal contributions.
   ! Local variables
@@ -1016,6 +1018,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
   type(RealArray_t) :: e_a, g_prime_a
+  type(RealArray_t) :: rho_star_a_none
   real, dimension(:,:,:), contiguous, pointer :: e ! Interface height in depth units [Z ~> m].
   real, dimension(SZI_(G),SZJ_(G))  :: &
     e_sal_and_tide, & ! The summation of self-attraction and loading and tidal forcing [Z ~> m].
@@ -1175,8 +1178,8 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   call e_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call e_a%view(e)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
-  if (present(pbce_a)) call pbce_a%view(pbce)
-  if (present(eta_a)) call eta_a%view(eta)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
 
   ! TODO: This would be done outside of the function!
 
@@ -2017,11 +2020,11 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
     !$omp end target data
   endif
 
-  if (present(pbce_a)) then
+  if (pbce_a%associated()) then
     call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
     call set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
                         GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, rho0_set_pbce, &
-                        CS%GFS_scale, pbce_a, nkblock=nkblock)
+                        CS%GFS_scale, pbce_a, rho_star_a=rho_star_a_none, nkblock=nkblock)
     call g_prime_a%free()
   endif
 
@@ -2034,7 +2037,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   !$omp   map(delete: pa, dpa) &
   !$omp   map(delete: intx_pa, inty_pa, intx_dpa, inty_dpa, intz_dpa)
 
-  if (present(eta_a)) then
+  if (eta_a%associated()) then
     ! eta is the sea surface height relative to a time-invariant geoid, for comparison with
     ! what is used for eta in btstep.  See how e was calculated about 200 lines above.
     do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)

@@ -84,19 +84,8 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
   if (present(pbce)) call pbce_a%alloc(lb=LBOUND(pbce), ub=UBOUND(pbce), source=pbce)
   if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
 
-  if (present(pbce) .and. present(eta)) then
-    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                          p_atm_a, pbce_a, eta_a)
-  elseif (present(pbce)) then
-    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                          p_atm_a, pbce_a=pbce_a)
-  elseif (present(eta)) then
-    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                          p_atm_a, eta_a=eta_a)
-  else
-    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                          p_atm_a)
-  endif
+  call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                        p_atm_a, pbce_a, eta_a)
   call bxH0%free() ; call bxQ0%free()
 
   call PFu_a%copy2F(PFu)
@@ -130,10 +119,10 @@ subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US,
   type(RealArray_t),       intent(in)  :: p_atm_a !< The pressure at the ice-ocean or
                                                !! atmosphere-ocean interface [R L2 T-2 ~> Pa].
   type(RealArray_t), &
-                 optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
+                 intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
                                                !! due to eta anomalies [L2 T-2 H-1 ~> m s-2 or m4 s-2 kg-1].
   type(RealArray_t), &
-                 optional, intent(inout) :: eta_a  !< The bottom mass used to calculate PFu and PFv,
+                 intent(inout) :: eta_a  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
   if (CS%Analytic_FV_PGF) then
