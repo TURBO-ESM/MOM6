@@ -22,7 +22,9 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : thermo_var_ptrs, accel_diag_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use MOM_ALE, only: ALE_CS
+use MOM_grid_containers, only : grid_core_type, grid_core
 use array_mod, only : RealArray_t
+use box_mod, only : Box_t
 implicit none ; private
 
 #include <MOM_memory.h>
@@ -66,6 +68,14 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
   type(RealArray_t) :: h_a, PFu_a, PFv_a, p_atm_a, pbce_a, eta_a
+  type(grid_core_type), pointer :: Gcore ! Persistent copies of the core ocean grid fields
+  type(Box_t) :: bxH0  ! The h-point box of the whole column, [isc:iec, jsc:jec, 1:nz]
+  type(Box_t) :: bxQ0  ! The B-grid-index box of the whole column, [IscB:IecB, JscB:JecB, 1:nz]
+
+  Gcore => grid_core(G)
+  call bxH0%safe_alloc(ndims=3) ; call bxQ0%safe_alloc(ndims=3)
+  call bxH0%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
+  call bxQ0%set(idxS=[G%IscB,G%JscB,1], idxE=[G%IecB,G%JecB,GV%ke])
 
   call h_a%alloc(lb=LBOUND(h), ub=UBOUND(h), source=h)
   call PFu_a%alloc(lb=LBOUND(PFu), ub=UBOUND(PFu), source=PFu)
@@ -75,17 +85,19 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
   if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
 
   if (present(pbce) .and. present(eta)) then
-    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                          pbce_a, eta_a)
+    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                          p_atm_a, pbce_a, eta_a)
   elseif (present(pbce)) then
-    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                          pbce_a=pbce_a)
+    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                          p_atm_a, pbce_a=pbce_a)
   elseif (present(eta)) then
-    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                          eta_a=eta_a)
+    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                          p_atm_a, eta_a=eta_a)
   else
-    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a)
+    call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                          p_atm_a)
   endif
+  call bxH0%free() ; call bxQ0%free()
 
   call PFu_a%copy2F(PFu)
   call PFv_a%copy2F(PFv)
@@ -97,9 +109,14 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
 end subroutine PressureForce
 
 !> The implementation of PressureForce (the root of its call tree).
-subroutine PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                            pbce_a, eta_a)
+subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
+                            p_atm_a, pbce_a, eta_a)
+  type(Box_t),             intent(in)  :: bxH0 !< The h-point box of the whole column,
+                                               !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)  :: bxQ0 !< The B-grid-index box of the whole column,
+                                               !! [IscB:IecB, JscB:JecB, 1:nz]
   type(ocean_grid_type),   intent(in)  :: G    !< The ocean's grid structure
+  type(grid_core_type),    intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
   type(unit_scale_type),   intent(in)  :: US   !< A dimensional unit scaling type
   type(RealArray_t),       intent(in)  :: h_a  !< Layer thicknesses [H ~> m or kg m-2]
@@ -121,19 +138,19 @@ subroutine PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, 
 
   if (CS%Analytic_FV_PGF) then
     if (GV%Boussinesq) then
-      call PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_FV, &
-                                   ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+      call PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                  CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_FV, &
-                                      ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+      call PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                     CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     endif
   else
     if (GV%Boussinesq) then
-      call PressureForce_Mont_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_Mont, &
-                                    p_atm_a, pbce_a, eta_a)
+      call PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                    CS%PressureForce_Mont, p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_Mont_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_Mont, &
-                                       p_atm_a, pbce_a, eta_a)
+      call PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
+                                       CS%PressureForce_Mont, p_atm_a, pbce_a, eta_a)
     endif
   endif
 

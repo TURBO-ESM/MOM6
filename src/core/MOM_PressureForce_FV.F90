@@ -12,6 +12,7 @@ use MOM_diag_mediator, only : safe_alloc_ptr, diag_ctrl, time_type
 use MOM_error_handler, only : MOM_error, FATAL, WARNING, is_root_pe
 use MOM_file_parser, only : get_param, log_param, log_version, param_file_type
 use MOM_grid, only : ocean_grid_type
+use MOM_grid_containers, only : grid_core_type
 use MOM_PressureForce_Mont, only : set_pbce_Bouss, set_pbce_nonBouss
 use MOM_self_attr_load, only : calc_SAL, SAL_CS
 use MOM_tidal_forcing, only : calc_tidal_forcing, tidal_forcing_CS
@@ -27,6 +28,7 @@ use MOM_density_integrals, only : int_density_dz_generic_pcm, int_spec_vol_dp_ge
 use MOM_density_integrals, only : diagnose_mass_weight_Z, diagnose_mass_weight_p
 use MOM_ALE, only : TS_PLM_edge_values, TS_PPM_edge_values, TS_PLM_WLS_edge_values, ALE_CS
 use array_mod, only : RealArray_t
+use box_mod, only : Box_t
 
 implicit none ; private
 
@@ -133,9 +135,14 @@ contains
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                                     pbce_a, eta_a)
+subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                                     ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+  type(Box_t),          intent(in)  :: bxH0  !< The h-point box of the whole column,
+                                             !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0  !< The B-grid-index box of the whole column,
+                                             !! [IscB:IecB, JscB:JecB, 1:nz]
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
+  type(grid_core_type), intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
   type(RealArray_t),                          intent(in)  :: h_a !< Layer thickness [H ~> kg m-2]
@@ -155,7 +162,8 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
-  type(RealArray_t) :: p_a
+  real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
+  type(RealArray_t) :: p_a, Rlay_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: p ! Interface pressure [R L2 T-2 ~> Pa].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), target :: &
     T_tmp, &    ! Temporary array of temperatures where layers that are lighter
@@ -292,6 +300,9 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
   EOSdom_v(1) = is - (G%isd-1)   ; EOSdom_v(2) = ie - (G%isd-1)
 
   call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
+  call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call Gcore%mask2dCu%view(mask2dCu) ; call Gcore%mask2dCv%view(mask2dCv)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -441,7 +452,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
   !$OMP parallel do default(shared)
   do j=Jsq,Jeq+1
     do i=Isq,Ieq+1
-      za(i,j,nz+1) = alpha_ref*p(i,j,nz+1) - GV%g_Earth*G%bathyT(i,j)
+      za(i,j,nz+1) = alpha_ref*p(i,j,nz+1) - GV%g_Earth*bathyT(i,j)
     enddo
     do k=nz,1,-1 ; do i=Isq,Ieq+1
       za(i,j,K) = za(i,j,K+1) + dza(i,j,k)
@@ -461,7 +472,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
       do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         SSH(i,j) = (za(i,j,1) - alpha_ref*p(i,j,1)) * I_gEarth - G%Z_ref
         ! Remove above sea level topography at floodable cells
-        SSH(i,j) = SSH(i,j) - max(-G%bathyT(i,j)-G%meanSL(i,j), 0.0)
+        SSH(i,j) = SSH(i,j) - max(-bathyT(i,j)-meanSL(i,j), 0.0)
       enddo ; enddo
       call calc_SAL(SSH, e_sal, G, CS%SAL_CSp, tmp_scale=US%Z_to_m)
     endif
@@ -615,7 +626,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
     T_int_E(:,:) = 0.0 ; S_int_E(:,:) = 0.0 ; p_int_E(:,:) = 0.0
     intx_za_nonlin(:,:) = 0.0 ; intx_za_cor_ri(:,:) = 0.0 ; dp_int_x(:,:) = 0.0
     do j=js,je ; do I=Isq,Ieq
-      seek_x_cor(I,j) = (G%mask2dCu(I,j) > 0.)
+      seek_x_cor(I,j) = (mask2dCu(I,j) > 0.)
       delta_p_x(I,j)  = 0.0
     enddo ; enddo
 
@@ -718,7 +729,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
     T_int_N(:,:) = 0.0 ; S_int_N(:,:) = 0.0 ; p_int_N(:,:) = 0.0
     inty_za_nonlin(:,:) = 0.0 ; inty_za_cor_ri(:,:) = 0.0 ; dp_int_y(:,:) = 0.0
     do J=Jsq,Jeq ; do i=is,ie
-      seek_y_cor(i,J) = (G%mask2dCv(i,J) > 0.)
+      seek_y_cor(i,J) = (mask2dCv(i,J) > 0.)
       delta_p_y(i,J) = 0.0
     enddo ; enddo
 
@@ -856,7 +867,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
                       (za(i+1,j,K+1)*dp(i+1,j) + intp_dza(i+1,j,k))) + &
                      ((dp(i+1,j) - dp(i,j)) * intx_za(I,j,K+1) - &
                       (p(i+1,j,K) - p(i,j,K)) * intx_dza(I,j,k)) ) * &
-                   (2.0*G%IdxCu(I,j) / ((dp(i,j) + dp(i+1,j)) + dp_neglect))
+                   (2.0*IdxCu(I,j) / ((dp(i,j) + dp(i+1,j)) + dp_neglect))
     enddo ; enddo
 
     do J=Jsq,Jeq ; do i=is,ie
@@ -864,7 +875,7 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
                      (za(i,j+1,K+1)*dp(i,j+1) + intp_dza(i,j+1,k))) + &
                     ((dp(i,j+1) - dp(i,j)) * inty_za(i,J,K+1) - &
                      (p(i,j+1,K) - p(i,j,K)) * inty_dza(i,J,k))) * &
-                    (2.0*G%IdyCv(i,J) / ((dp(i,j) + dp(i,j+1)) + dp_neglect))
+                    (2.0*IdyCv(i,J) / ((dp(i,j) + dp(i,j+1)) + dp_neglect))
     enddo ; enddo
   enddo
 
@@ -890,18 +901,21 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
     !$OMP parallel do default(shared)
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
-        PFu(I,j,k) = PFu(I,j,k) - (dM(i+1,j) - dM(i,j)) * G%IdxCu(I,j)
+        PFu(I,j,k) = PFu(I,j,k) - (dM(i+1,j) - dM(i,j)) * IdxCu(I,j)
       enddo ; enddo
       do J=Jsq,Jeq ; do i=is,ie
-        PFv(i,J,k) = PFv(i,J,k) - (dM(i,j+1) - dM(i,j)) * G%IdyCv(i,J)
+        PFv(i,J,k) = PFv(i,J,k) - (dM(i,j+1) - dM(i,j)) * IdyCv(i,J)
       enddo ; enddo
     enddo
   endif
 
   if (present(pbce_a)) then
     call p_a%alloc(lb=LBOUND(p), ub=UBOUND(p), source=p)
-    call set_pbce_nonBouss(p_a, tv_tmp, G, GV, US, CS%GFS_scale, pbce_a)
+    call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
+    call set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
+                           GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a)
     call p_a%free()
+    call Rlay_a%free()
   endif
 
   if (present(eta_a)) then
@@ -941,10 +955,10 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
       e_sal(i,j) = e_sal(i,j) + e_tidal_sal(i,j)
     enddo ; enddo ; endif
     if (associated(ADp%sal_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-      ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * G%IdxCu(I,j)
+      ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * IdxCu(I,j)
     enddo ; enddo ; enddo ; endif
     if (associated(ADp%sal_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-      ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * G%IdyCv(i,J)
+      ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * IdyCv(i,J)
     enddo ; enddo ; enddo ; endif
     if (CS%id_sal_u>0) call post_data(CS%id_sal_u, ADp%sal_u, CS%diag)
     if (CS%id_sal_v>0) call post_data(CS%id_sal_v, ADp%sal_v, CS%diag)
@@ -952,10 +966,10 @@ subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_C
 
   if (CS%tides .and. (associated(ADp%tides_u) .or. associated(ADp%tides_v))) then
     if (associated(ADp%tides_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-      ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * GV%g_Earth * G%IdxCu(I,j)
+      ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * GV%g_Earth * IdxCu(I,j)
     enddo ; enddo ; enddo ; endif
     if (associated(ADp%tides_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-      ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * GV%g_Earth * G%IdyCv(i,J)
+      ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * GV%g_Earth * IdyCv(i,J)
     enddo ; enddo ; enddo ; endif
     if (CS%id_tides_u>0) call post_data(CS%id_tides_u, ADp%tides_u, CS%diag)
     if (CS%id_tides_v>0) call post_data(CS%id_tides_v, ADp%tides_v, CS%diag)
@@ -970,9 +984,14 @@ end subroutine PressureForce_FV_nonBouss
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
-                                  pbce_a, eta_a)
+subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                                  ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+  type(Box_t),          intent(in)  :: bxH0  !< The h-point box of the whole column,
+                                             !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0  !< The B-grid-index box of the whole column,
+                                             !! [IscB:IecB, JscB:JecB, 1:nz]
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
+  type(grid_core_type), intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
   type(RealArray_t),                          intent(in)  :: h_a !< Layer thickness [H ~> m]
@@ -993,7 +1012,8 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
   ! Local variables
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
-  type(RealArray_t) :: e_a
+  real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
+  type(RealArray_t) :: e_a, g_prime_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: e ! Interface height in depth units [Z ~> m].
   real, dimension(SZI_(G),SZJ_(G))  :: &
     e_sal_and_tide, & ! The summation of self-attraction and loading and tidal forcing [Z ~> m].
@@ -1147,6 +1167,9 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
   EOSdom2d(2,:) = [Jsq - (G%isd - 1), (je + 1) - (G%jsd - 1)]
 
   call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
+  call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call Gcore%mask2dCu%view(mask2dCu) ; call Gcore%mask2dCv%view(mask2dCv)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -1189,7 +1212,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
   !$omp target enter data map(alloc: e, T_t, T_b, S_t, S_b)
 
   do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
-    e(i,j,nz+1) = -G%bathyT(i,j)
+    e(i,j,nz+1) = -bathyT(i,j)
   enddo
 
   ! The following two if-blocks are used to recover old answers for self-attraction and loading
@@ -1204,7 +1227,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     !$OMP parallel do default(shared)
     do j=Jsq,Jeq+1
       do i=Isq,Ieq+1
-        SSH(i,j) = min(-G%bathyT(i,j) - G%meanSL(i,j), 0.0)
+        SSH(i,j) = min(-bathyT(i,j) - meanSL(i,j), 0.0)
       enddo
       do k=1,nz ; do i=Isq,Ieq+1
         SSH(i,j) = SSH(i,j) + h(i,j,k)*GV%H_to_Z
@@ -1328,7 +1351,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
       enddo
     else
       do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
-        Z_0p(i,j) = G%meanSL(i,j)
+        Z_0p(i,j) = meanSL(i,j)
       enddo
     endif
     !$omp target update from(Z_0p) &
@@ -1436,7 +1459,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
       do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
         SSH(i,j) = e(i,j,1) - G%Z_ref
         ! Remove above sea level topography at floodable cells
-        SSH(i,j) = SSH(i,j) - max(-G%bathyT(i,j)-G%meanSL(i,j), 0.0)
+        SSH(i,j) = SSH(i,j) - max(-bathyT(i,j)-meanSL(i,j), 0.0)
       enddo ; enddo
       call calc_SAL(SSH, e_sal, G, CS%SAL_CSp, tmp_scale=US%Z_to_m)
     endif
@@ -1655,7 +1678,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     T_int_E(:,:) = 0.0 ; S_int_E(:,:) = 0.0 ; p_int_E(:,:) = 0.0
     intx_pa_nonlin(:,:) = 0.0 ; dgeo_x(:,:) = 0.0 ; intx_pa_cor_ri(:,:) = 0.0
     do j=js,je ; do I=Isq,Ieq
-      seek_x_cor(I,j) = (G%mask2dCu(I,j) > 0.)
+      seek_x_cor(I,j) = (mask2dCu(I,j) > 0.)
       delta_z_x(I,j)  = 0.0
     enddo ; enddo
 
@@ -1765,7 +1788,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     T_int_N(:,:) = 0.0 ; S_int_N(:,:) = 0.0 ; p_int_N(:,:) = 0.0
     inty_pa_nonlin(:,:) = 0.0 ; dgeo_y(:,:) = 0.0 ; inty_pa_cor_ri(:,:) = 0.0
     do J=Jsq,Jeq ; do i=is,ie
-      seek_y_cor(i,J) = (G%mask2dCv(i,J) > 0.)
+      seek_y_cor(i,J) = (mask2dCv(i,J) > 0.)
       delta_z_y(i,J)  = 0.0
     enddo ; enddo
 
@@ -1900,7 +1923,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
                    (pa(i+1,j,K)*h(i+1,j,k) + intz_dpa(i+1,j,k))) + &
                   ((h(i+1,j,k) - h(i,j,k)) * intx_pa(I,j,K) - &
                    (e(i+1,j,K+1) - e(i,j,K+1)) * intx_dpa(I,j,k) * GV%Z_to_H)) * &
-                 ((2.0*I_Rho0*G%IdxCu(I,j)) / &
+                 ((2.0*I_Rho0*IdxCu(I,j)) / &
                   ((h(i,j,k) + h(i+1,j,k)) + h_neglect))
   enddo
 
@@ -1910,7 +1933,7 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
                    (pa(i,j+1,K)*h(i,j+1,k) + intz_dpa(i,j+1,k))) + &
                   ((h(i,j+1,k) - h(i,j,k)) * inty_pa(i,J,K) - &
                    (e(i,j+1,K+1) - e(i,j,K+1)) * inty_dpa(i,J,k) * GV%Z_to_H)) * &
-                 ((2.0*I_Rho0*G%IdyCv(i,J)) / &
+                 ((2.0*I_Rho0*IdyCv(i,J)) / &
                   ((h(i,j,k) + h(i,j+1,k)) + h_neglect))
   enddo
 
@@ -1921,10 +1944,10 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     ! gradient force
     if (CS%calculate_SAL) then
       do concurrent (k=1:nz, j=js:je, I=Isq:Ieq)
-          PFu(I,j,k) = PFu(I,j,k) + (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * G%IdxCu(I,j)
+          PFu(I,j,k) = PFu(I,j,k) + (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * IdxCu(I,j)
       enddo
       do concurrent (k=1:nz, J=Jsq:Jeq, i=is:ie)
-          PFv(i,J,k) = PFv(i,J,k) + (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * G%IdyCv(i,J)
+          PFv(i,J,k) = PFv(i,J,k) + (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * IdyCv(i,J)
       enddo
     endif
 
@@ -1933,11 +1956,11 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     if (CS%tides) then
       do concurrent (k=1:nz, j=js:je, I=Isq:Ieq)
           PFu(I,j,k) = PFu(I,j,k) + ((e_tidal_eq(i+1,j) + e_tidal_sal(i+1,j)) &
-              - (e_tidal_eq(i,j) + e_tidal_sal(i,j))) * GV%g_Earth * G%IdxCu(I,j)
+              - (e_tidal_eq(i,j) + e_tidal_sal(i,j))) * GV%g_Earth * IdxCu(I,j)
       enddo
       do concurrent (k=1:nz, J=Jsq:Jeq, i=is:ie)
           PFv(i,J,k) = PFv(i,J,k) + ((e_tidal_eq(i,j+1) + e_tidal_sal(i,j+1)) &
-              - (e_tidal_eq(i,j) + e_tidal_sal(i,j))) * GV%g_Earth * G%IdyCv(i,J)
+              - (e_tidal_eq(i,j) + e_tidal_sal(i,j))) * GV%g_Earth * IdyCv(i,J)
       enddo
     endif
   endif
@@ -1982,10 +2005,10 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     endif
 
     do concurrent (k=1:nz, j=js:je, I=Isq:Ieq)
-      PFu(I,j,k) = PFu(I,j,k) - (dM(i+1,j) - dM(i,j)) * G%IdxCu(I,j)
+      PFu(I,j,k) = PFu(I,j,k) - (dM(i+1,j) - dM(i,j)) * IdxCu(I,j)
     enddo
     do concurrent (k=1:nz, J=Jsq:Jeq, i=is:ie)
-      PFv(i,J,k) = PFv(i,J,k) - (dM(i,j+1) - dM(i,j)) * G%IdyCv(i,J)
+      PFv(i,J,k) = PFv(i,J,k) - (dM(i,j+1) - dM(i,j)) * IdyCv(i,J)
     enddo
 
     !$omp end target data
@@ -1993,9 +2016,12 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
 
   if (present(pbce_a)) then
     call e_a%alloc(lb=LBOUND(e), ub=UBOUND(e), source=e)
-    call set_pbce_Bouss(e_a, tv_tmp, G, GV, US, rho0_set_pbce, CS%GFS_scale, pbce_a, &
-                        nkblock=nkblock)
+    call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
+    call set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
+                        GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, rho0_set_pbce, &
+                        CS%GFS_scale, pbce_a, nkblock=nkblock)
     call e_a%free()
+    call g_prime_a%free()
   endif
 
   !$omp target exit data if (use_EOS) &
@@ -2102,19 +2128,19 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     if (CS%bq_sal_tides) then
       ! sal_u = ( e(i+1) - e(i) ) * g / dx
       if (associated(ADp%sal_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-        ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * G%IdxCu(I,j)
+        ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * GV%g_Earth * IdxCu(I,j)
       enddo ; enddo ; enddo ; endif
       if (associated(ADp%sal_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-        ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * G%IdyCv(i,J)
+        ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * GV%g_Earth * IdyCv(i,J)
       enddo ; enddo ; enddo ; endif
     else
       ! sal_u = ( e(i+1) - e(i) ) * g / dx * (rho(k) / rho0)
       if (associated(ADp%sal_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-        ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * G%IdxCu(I,j) * I_Rho0 * &
+        ADp%sal_u(I,j,k) = (e_sal(i+1,j) - e_sal(i,j)) * IdxCu(I,j) * I_Rho0 * &
           (2.0 * intx_dpa(I,j,k) * GV%Z_to_H / ((h(i,j,k) + h(i+1,j,k)) + h_neglect) + GxRho_ref)
       enddo ; enddo ; enddo ; endif
       if (associated(ADp%sal_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-        ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * G%IdyCv(i,J) * I_Rho0 * &
+        ADp%sal_v(i,J,k) = (e_sal(i,j+1) - e_sal(i,j)) * IdyCv(i,J) * I_Rho0 * &
           (2.0 * inty_dpa(i,J,k) * GV%Z_to_H / ((h(i,j,k) + h(i,j+1,k)) + h_neglect) + GxRho_ref)
       enddo ; enddo ; enddo ; endif
     endif
@@ -2126,19 +2152,19 @@ subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp,
     if (CS%bq_sal_tides) then
       ! tides_u = ( e(i+1) - e(i) ) * g / dx
       if (associated(ADp%tides_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-        ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * GV%g_Earth * G%IdxCu(I,j)
+        ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * GV%g_Earth * IdxCu(I,j)
       enddo ; enddo ; enddo ; endif
       if (associated(ADp%tides_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-        ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * GV%g_Earth * G%IdyCv(i,J)
+        ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * GV%g_Earth * IdyCv(i,J)
       enddo ; enddo ; enddo ; endif
     else
       ! tides_u = ( e(i+1) - e(i) ) * g / dx * (rho(k) / rho0)
       if (associated(ADp%tides_u)) then ; do k=1,nz ; do j=js,je ; do I=Isq,Ieq
-        ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * G%IdxCu(I,j) * I_Rho0 * &
+        ADp%tides_u(I,j,k) = (e_tidal_eq(i+1,j) - e_tidal_eq(i,j)) * IdxCu(I,j) * I_Rho0 * &
           (2.0 * intx_dpa(I,j,k) * GV%Z_to_H / ((h(i,j,k) + h(i+1,j,k)) + h_neglect) + GxRho_ref)
       enddo ; enddo ; enddo ; endif
       if (associated(ADp%tides_v)) then ; do k=1,nz ; do J=Jsq,Jeq ; do i=is,ie
-        ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * G%IdyCv(i,J) * I_Rho0 * &
+        ADp%tides_v(i,J,k) = (e_tidal_eq(i,j+1) - e_tidal_eq(i,j)) * IdyCv(i,J) * I_Rho0 * &
           (2.0 * inty_dpa(i,J,k) * GV%Z_to_H / ((h(i,j,k) + h(i,j+1,k)) + h_neglect) + GxRho_ref)
       enddo ; enddo ; enddo ; endif
     endif
