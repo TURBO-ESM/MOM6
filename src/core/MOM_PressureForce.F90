@@ -71,11 +71,16 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
   type(grid_core_type), pointer :: Gcore ! Persistent copies of the core ocean grid fields
   type(Box_t) :: bxH0  ! The h-point box of the whole column, [isc:iec, jsc:jec, 1:nz]
   type(Box_t) :: bxQ0  ! The B-grid-index box of the whole column, [IscB:IecB, JscB:JecB, 1:nz]
+  type(Box_t) :: bxU0  ! The u-point box of the whole column, [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t) :: bxV0  ! The v-point box of the whole column, [isc:iec, JscB:JecB, 1:nz]
 
   Gcore => grid_core(G)
   call bxH0%safe_alloc(ndims=3) ; call bxQ0%safe_alloc(ndims=3)
+  call bxU0%safe_alloc(ndims=3) ; call bxV0%safe_alloc(ndims=3)
   call bxH0%set(idxS=[G%isc,G%jsc,1], idxE=[G%iec,G%jec,GV%ke])
   call bxQ0%set(idxS=[G%IscB,G%JscB,1], idxE=[G%IecB,G%JecB,GV%ke])
+  call bxU0%set(idxS=[G%IscB,G%jsc,1], idxE=[G%IecB,G%jec,GV%ke])
+  call bxV0%set(idxS=[G%isc,G%JscB,1], idxE=[G%iec,G%JecB,GV%ke])
 
   call h_a%alloc(lb=LBOUND(h), ub=UBOUND(h), source=h)
   call PFu_a%alloc(lb=LBOUND(PFu), ub=UBOUND(PFu), source=PFu)
@@ -84,9 +89,10 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
   if (present(pbce)) call pbce_a%alloc(lb=LBOUND(pbce), ub=UBOUND(pbce), source=pbce)
   if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
 
-  call PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                        p_atm_a, pbce_a, eta_a)
+  call PressureForce_TR(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                        ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
   call bxH0%free() ; call bxQ0%free()
+  call bxU0%free() ; call bxV0%free()
 
   call PFu_a%copy2F(PFu)
   call PFv_a%copy2F(PFv)
@@ -98,12 +104,16 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
 end subroutine PressureForce
 
 !> The implementation of PressureForce (the root of its call tree).
-subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, ALE_CSp, ADp, &
-                            p_atm_a, pbce_a, eta_a)
+subroutine PressureForce_TR(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                            ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
   type(Box_t),             intent(in)  :: bxH0 !< The h-point box of the whole column,
                                                !! [isc:iec, jsc:jec, 1:nz]
   type(Box_t),             intent(in)  :: bxQ0 !< The B-grid-index box of the whole column,
                                                !! [IscB:IecB, JscB:JecB, 1:nz]
+  type(Box_t),             intent(in)  :: bxU0 !< The u-point box of the whole column,
+                                               !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)  :: bxV0 !< The v-point box of the whole column,
+                                               !! [isc:iec, JscB:JecB, 1:nz]
   type(ocean_grid_type),   intent(in)  :: G    !< The ocean's grid structure
   type(grid_core_type),    intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
@@ -129,8 +139,8 @@ subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US,
 
   if (CS%Analytic_FV_PGF) then
     if (GV%Boussinesq) then
-      call PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
-                                  CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
+      call PressureForce_FV_Bouss(bxH0, bxQ0, bxU0, bxV0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, &
+                                  US, CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     else
       call PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, &
                                      CS%PressureForce_FV, ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
