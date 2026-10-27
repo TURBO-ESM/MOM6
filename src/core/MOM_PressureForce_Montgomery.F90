@@ -102,9 +102,10 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   type(RealArray_t) :: p_a, alpha_star_a, Rlay_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     M, &          ! The Montgomery potential, M = (p/rho + gz)  [L2 T-2 ~> m2 s-2].
-    alpha_star, & ! Compression adjusted specific volume [R-1 ~> m3 kg-1].
     dz_geo        !   The change in geopotential across a layer [L2 T-2 ~> m2 s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: p ! Interface pressure [R L2 T-2 ~> Pa].
+  real, dimension(:,:,:), contiguous, pointer :: &
+    alpha_star    ! Compression adjusted specific volume [R-1 ~> m3 kg-1].
+  real, dimension(:,:,:), contiguous, pointer :: p ! Interface pressure [R L2 T-2 ~> Pa].
                 ! p may be adjusted (with a nonlinear equation of state) so that
                 ! its derivative compensates for the adiabatic compressibility
                 ! in seawater, but p will still be close to the pressure.
@@ -159,6 +160,9 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
   call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
   call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call p_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call p_a%view(p)
+  call alpha_star_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke])
+  call alpha_star_a%view(alpha_star)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -346,13 +350,9 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
 
   ! Note that ddM/dPb = alpha_star(i,j,1)
   if (present(pbce_a)) then
-    call p_a%alloc(lb=LBOUND(p), ub=UBOUND(p), source=p)
-    call alpha_star_a%alloc(lb=LBOUND(alpha_star), ub=UBOUND(alpha_star), source=alpha_star)
     call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
     call Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
                            GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a, alpha_star_a)
-    call p_a%free()
-    call alpha_star_a%free()
     call Rlay_a%free()
   endif
 
@@ -401,6 +401,8 @@ subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gco
   if (CS%id_e_tide_eq>0) call post_data(CS%id_e_tide_eq, e_tide_eq, CS%diag)
   if (CS%id_e_tide_sal>0) call post_data(CS%id_e_tide_sal, e_tide_sal, CS%diag)
 
+  call p_a%free() ; call alpha_star_a%free()
+
 end subroutine PressureForce_Mont_nonBouss
 
 !> \brief Boussinesq Montgomery-potential form of pressure gradient
@@ -439,10 +441,11 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv
   type(RealArray_t) :: e_a, rho_star_a, g_prime_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
-    M, &        ! The Montgomery potential, M = (p/rho + gz) [L2 T-2 ~> m2 s-2].
+    M           ! The Montgomery potential, M = (p/rho + gz) [L2 T-2 ~> m2 s-2].
+  real, dimension(:,:,:), contiguous, pointer :: &
     rho_star    ! In-situ density divided by the derivative with depth of the
                 ! corrected e times (G_Earth/Rho0) [L2 Z-1 T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: e ! Interface height [Z ~> m].
+  real, dimension(:,:,:), contiguous, pointer :: e ! Interface height [Z ~> m].
                 ! e may be adjusted (with a nonlinear equation of state) so that
                 ! its derivative compensates for the adiabatic compressibility
                 ! in seawater, but e will still be close to the interface depth.
@@ -489,6 +492,9 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
   call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
   call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call e_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call e_a%view(e)
+  call rho_star_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke])
+  call rho_star_a%view(rho_star)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -621,14 +627,10 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   endif ! use_EOS
 
   if (present(pbce_a)) then
-    call e_a%alloc(lb=LBOUND(e), ub=UBOUND(e), source=e)
-    call rho_star_a%alloc(lb=LBOUND(rho_star), ub=UBOUND(rho_star), source=rho_star)
     call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
     call Set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
                         GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, CS%Rho0, &
                         CS%GFS_scale, pbce_a, rho_star_a, 1)
-    call e_a%free()
-    call rho_star_a%free()
     call g_prime_a%free()
   endif
 
@@ -697,6 +699,8 @@ subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore,
   if (CS%id_e_sal>0) call post_data(CS%id_e_sal, e_sal, CS%diag)
   if (CS%id_e_tide_eq>0) call post_data(CS%id_e_tide_eq, e_tide_eq, CS%diag)
   if (CS%id_e_tide_sal>0) call post_data(CS%id_e_tide_sal, e_tide_sal, CS%diag)
+
+  call e_a%free() ; call rho_star_a%free()
 
 end subroutine PressureForce_Mont_Bouss
 

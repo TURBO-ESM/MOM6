@@ -164,7 +164,7 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
   type(RealArray_t) :: p_a, Rlay_a
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: p ! Interface pressure [R L2 T-2 ~> Pa].
+  real, dimension(:,:,:), contiguous, pointer :: p ! Interface pressure [R L2 T-2 ~> Pa].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), target :: &
     T_tmp, &    ! Temporary array of temperatures where layers that are lighter
                 ! than the mixed layer have the mixed layer's properties [C ~> degC].
@@ -303,6 +303,7 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
   call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
   call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
   call Gcore%mask2dCu%view(mask2dCu) ; call Gcore%mask2dCv%view(mask2dCv)
+  call p_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call p_a%view(p)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -910,11 +911,9 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
   endif
 
   if (present(pbce_a)) then
-    call p_a%alloc(lb=LBOUND(p), ub=UBOUND(p), source=p)
     call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
     call set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
                            GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a)
-    call p_a%free()
     call Rlay_a%free()
   endif
 
@@ -974,6 +973,9 @@ subroutine PressureForce_FV_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore
     if (CS%id_tides_u>0) call post_data(CS%id_tides_u, ADp%tides_u, CS%diag)
     if (CS%id_tides_v>0) call post_data(CS%id_tides_v, ADp%tides_v, CS%diag)
   endif
+
+  call p_a%free()
+
 end subroutine PressureForce_FV_nonBouss
 
 !> \brief Boussinesq analytically-integrated finite volume form of pressure gradient
@@ -1014,7 +1016,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
   type(RealArray_t) :: e_a, g_prime_a
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: e ! Interface height in depth units [Z ~> m].
+  real, dimension(:,:,:), contiguous, pointer :: e ! Interface height in depth units [Z ~> m].
   real, dimension(SZI_(G),SZJ_(G))  :: &
     e_sal_and_tide, & ! The summation of self-attraction and loading and tidal forcing [Z ~> m].
     e_sal, &      ! The bottom geopotential anomaly due to self-attraction and loading [Z ~> m].
@@ -1170,6 +1172,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
   call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
   call Gcore%mask2dCu%view(mask2dCu) ; call Gcore%mask2dCv%view(mask2dCv)
+  call e_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call e_a%view(e)
   nullify(p_atm, pbce, eta)
   if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
@@ -2015,12 +2018,10 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   endif
 
   if (present(pbce_a)) then
-    call e_a%alloc(lb=LBOUND(e), ub=UBOUND(e), source=e)
     call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
     call set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
                         GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, rho0_set_pbce, &
                         CS%GFS_scale, pbce_a, nkblock=nkblock)
-    call e_a%free()
     call g_prime_a%free()
   endif
 
@@ -2171,6 +2172,9 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
     if (CS%id_tides_u>0) call post_data(CS%id_tides_u, ADp%tides_u, CS%diag)
     if (CS%id_tides_v>0) call post_data(CS%id_tides_v, ADp%tides_v, CS%diag)
   endif
+
+  call e_a%free()
+
 end subroutine PressureForce_FV_Bouss
 
 !> Initializes the finite volume pressure gradient control structure
