@@ -109,7 +109,8 @@ subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US,
   type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
   type(unit_scale_type),   intent(in)  :: US   !< A dimensional unit scaling type
   type(RealArray_t),       intent(in)  :: h_a  !< Layer thicknesses [H ~> m or kg m-2]
-  type(thermo_var_ptrs),   intent(in)  :: tv   !< A structure pointing to various thermodynamic variables
+  type(thermo_var_ptrs),   intent(in)  :: tv   !< A structure pointing to various thermodynamic
+                                               !! variables
   type(RealArray_t), intent(inout) :: PFu_a !< Zonal pressure force acceleration [L T-2 ~> m s-2]
   type(RealArray_t), intent(inout) :: PFv_a !< Meridional pressure force acceleration
                                             !! [L T-2 ~> m s-2]
@@ -120,7 +121,8 @@ subroutine PressureForce_TR(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US,
                                                !! atmosphere-ocean interface [R L2 T-2 ~> Pa].
   type(RealArray_t), &
                  intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
-                                               !! due to eta anomalies [L2 T-2 H-1 ~> m s-2 or m4 s-2 kg-1].
+                                               !! due to eta anomalies
+                                               !! [L2 T-2 H-1 ~> m s-2 or m4 s-2 kg-1].
   type(RealArray_t), &
                  intent(inout) :: eta_a  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
