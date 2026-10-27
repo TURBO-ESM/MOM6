@@ -69,18 +69,19 @@ contains
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce_a, eta_a)
+subroutine PressureForce_Mont_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, p_atm_a, &
+                                       pbce_a, eta_a)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure.
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure.
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness, [H ~> kg m-2].
+  type(RealArray_t), intent(in) :: h_a !< Layer thickness, [H ~> kg m-2].
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables.
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration due to pressure gradients
                                                                  !! (equal to -dM/dx) [L T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration due to pressure gradients
                                                                  !! (equal to -dM/dy) [L T-2 ~> m s-2].
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean or
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                  !! atmosphere-ocean [R L2 T-2 ~> Pa].
   type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                  !! each layer due to free surface height anomalies,
@@ -88,9 +89,9 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   type(RealArray_t), optional, intent(inout) :: eta_a !< The total column mass used to calculate
                                                                  !! PFu and PFv [H ~> kg m-2].
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: pbce
-  real, dimension(:,:), contiguous, pointer :: eta
-  type(RealArray_t) :: alpha_star_a
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  type(RealArray_t) :: p_a, alpha_star_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     M, &          ! The Montgomery potential, M = (p/rho + gz)  [L2 T-2 ~> m2 s-2].
     alpha_star, & ! Compression adjusted specific volume [R-1 ~> m3 kg-1].
@@ -147,7 +148,9 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
 
-  nullify(pbce, eta)
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
   if (present(eta_a)) call eta_a%view(eta)
 
@@ -333,8 +336,10 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
 
   ! Note that ddM/dPb = alpha_star(i,j,1)
   if (present(pbce_a)) then
+    call p_a%alloc(lb=LBOUND(p), ub=UBOUND(p), source=p)
     call alpha_star_a%alloc(lb=LBOUND(alpha_star), ub=UBOUND(alpha_star), source=alpha_star)
-    call Set_pbce_nonBouss(p, tv_tmp, G, GV, US, CS%GFS_scale, pbce, alpha_star_a)
+    call Set_pbce_nonBouss(p_a, tv_tmp, G, GV, US, CS%GFS_scale, pbce_a, alpha_star_a)
+    call p_a%free()
     call alpha_star_a%free()
   endif
 
@@ -392,27 +397,28 @@ end subroutine PressureForce_Mont_nonBouss
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce_a, eta_a)
+subroutine PressureForce_Mont_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, p_atm_a, &
+                                    pbce_a, eta_a)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure.
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure.
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness [H ~> m].
+  type(RealArray_t), intent(in) :: h_a !< Layer thickness [H ~> m].
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables.
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration due to pressure gradients
                                                                  !! (equal to -dM/dx) [L T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration due to pressure gradients
                                                                  !! (equal to -dM/dy) [L T-2 ~> m s-2].
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean or
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                 !! atmosphere-ocean [R L2 T-2 ~> Pa].
   type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                 !! each layer due to free surface height anomalies
                                                                 !! [L2 T-2 H-1 ~> m s-2].
   type(RealArray_t), optional, intent(inout) :: eta_a !< Free surface height [H ~> m].
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: pbce
-  real, dimension(:,:), contiguous, pointer :: eta
-  type(RealArray_t) :: rho_star_a
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  type(RealArray_t) :: e_a, rho_star_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     M, &        ! The Montgomery potential, M = (p/rho + gz) [L2 T-2 ~> m2 s-2].
     rho_star    ! In-situ density divided by the derivative with depth of the
@@ -461,7 +467,9 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce_
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
 
-  nullify(pbce, eta)
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
   if (present(eta_a)) call eta_a%view(eta)
 
@@ -592,8 +600,10 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce_
   endif ! use_EOS
 
   if (present(pbce_a)) then
+    call e_a%alloc(lb=LBOUND(e), ub=UBOUND(e), source=e)
     call rho_star_a%alloc(lb=LBOUND(rho_star), ub=UBOUND(rho_star), source=rho_star)
-    call Set_pbce_Bouss(e, tv_tmp, G, GV, US, CS%Rho0, CS%GFS_scale, pbce, rho_star_a, 1)
+    call Set_pbce_Bouss(e_a, tv_tmp, G, GV, US, CS%Rho0, CS%GFS_scale, pbce_a, rho_star_a, 1)
+    call e_a%free()
     call rho_star_a%free()
   endif
 
@@ -667,18 +677,17 @@ end subroutine PressureForce_Mont_Bouss
 
 !> Determines the partial derivative of the acceleration due
 !! to pressure forces with the free surface height.
-subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star_a, nkblock)
+subroutine Set_pbce_Bouss(e_a, tv, G, GV, US, Rho0, GFS_scale, pbce_a, rho_star_a, nkblock)
   type(ocean_grid_type),                intent(in)  :: G    !< Ocean grid structure
   type(verticalGrid_type),              intent(in)  :: GV   !< Vertical grid structure
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in) :: e !< Interface height [Z ~> m].
+  type(RealArray_t), intent(in) :: e_a !< Interface height [Z ~> m].
   type(thermo_var_ptrs),                intent(in)  :: tv   !< Thermodynamic variables
   type(unit_scale_type),                intent(in)  :: US   !< A dimensional unit scaling type
   real,                                 intent(in)  :: Rho0 !< The "Boussinesq" ocean density [R ~> kg m-3].
   real,                                 intent(in)  :: GFS_scale !< Ratio between gravity applied to top
                                                             !! interface and the gravitational acceleration of
                                                             !! the planet [nondim]. Usually this ratio is 1.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                                        intent(out) :: pbce !< The baroclinic pressure anomaly in each layer due
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer due
                                                             !! to free surface height anomalies
                                                             !! [L2 T-2 H-1 ~> m s-2].
   type(RealArray_t), &
@@ -687,7 +696,7 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star_a, n
   integer, intent(in) :: nkblock !< The number of vertical levels in each block for the variable density
                                  !! near-surface layer.  This is needed to determine whether rho_star is
                                  !! compressibility compensated or not.
-  real, dimension(:,:,:), contiguous, pointer :: rho_star
+  real, dimension(:,:,:), contiguous, pointer :: e, pbce, rho_star
   real :: Ihtot(SZI_(G),SZJ_(G))  ! The inverse of the sum of the layer thicknesses [H-1 ~> m-1 or m2 kg-1].
   real :: press(SZI_(G),SZJ_(G),nkblock)  ! Interface pressure [R L2 T-2 ~> Pa].
   real :: T_int(SZI_(G),SZJ_(G),nkblock)  ! Interface temperature [C ~> degC]
@@ -704,6 +713,7 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star_a, n
   integer :: EOSdom(3,2)     ! The computational domain for the equation of state
   integer :: Isq, Ieq, Jsq, Jeq, nz, i, j, k, kstart, kend, kk
 
+  call e_a%view(e) ; call pbce_a%view(pbce)
   nullify(rho_star)
   if (present(rho_star_a)) call rho_star_a%view(rho_star)
 
@@ -794,22 +804,22 @@ end subroutine Set_pbce_Bouss
 
 !> Determines the partial derivative of the acceleration due
 !! to pressure forces with the column mass.
-subroutine Set_pbce_nonBouss(p, tv, G, GV, US, GFS_scale, pbce, alpha_star_a)
+subroutine Set_pbce_nonBouss(p_a, tv, G, GV, US, GFS_scale, pbce_a, alpha_star_a)
   type(ocean_grid_type),                intent(in)  :: G  !< Ocean grid structure
   type(verticalGrid_type),              intent(in)  :: GV !< Vertical grid structure
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in) :: p !< Interface pressures [R L2 T-2 ~> Pa].
+  type(RealArray_t), intent(in) :: p_a !< Interface pressures [R L2 T-2 ~> Pa].
   type(thermo_var_ptrs),                intent(in)  :: tv !< Thermodynamic variables
   type(unit_scale_type),                intent(in)  :: US !< A dimensional unit scaling type
   real,                                 intent(in)  :: GFS_scale !< Ratio between gravity applied to top
                                                           !! interface and the gravitational acceleration of
                                                           !! the planet [nondim]. Usually this ratio is 1.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), intent(out) :: pbce !< The baroclinic pressure anomaly in each
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each
                                                           !! layer due to free surface height anomalies
                                                           !! [L2 H-1 T-2 ~> m4 kg-1 s-2].
   type(RealArray_t), optional, intent(in) :: alpha_star_a !< The layer specific volumes
                                                           !! (maybe compressibility compensated) [R-1 ~> m3 kg-1].
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: alpha_star
+  real, dimension(:,:,:), contiguous, pointer :: p, pbce, alpha_star
   real, dimension(SZI_(G),SZJ_(G)) :: &
     dpbce, &      !   A barotropic correction to the pbce to enable the use of
                   ! a reduced gravity form of the equations [L2 H-1 T-2 ~> m4 kg-1 s-2].
@@ -832,6 +842,7 @@ subroutine Set_pbce_nonBouss(p, tv, G, GV, US, GFS_scale, pbce, alpha_star_a)
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB ; nz = GV%ke
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
 
+  call p_a%view(p) ; call pbce_a%view(pbce)
   nullify(alpha_star)
   if (present(alpha_star_a)) call alpha_star_a%view(alpha_star)
 

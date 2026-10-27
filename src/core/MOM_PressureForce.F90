@@ -65,43 +65,52 @@ subroutine PressureForce(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pb
                  optional, intent(out) :: eta  !< The bottom mass used to calculate PFu and PFv,
                                                !! [H ~> m or kg m-2], with any tidal contributions.
 
-  type(RealArray_t) :: pbce_a, eta_a
+  type(RealArray_t) :: h_a, PFu_a, PFv_a, p_atm_a, pbce_a, eta_a
 
+  call h_a%alloc(lb=LBOUND(h), ub=UBOUND(h), source=h)
+  call PFu_a%alloc(lb=LBOUND(PFu), ub=UBOUND(PFu), source=PFu)
+  call PFv_a%alloc(lb=LBOUND(PFv), ub=UBOUND(PFv), source=PFv)
+  if (associated(p_atm)) call p_atm_a%alloc(lb=LBOUND(p_atm), ub=UBOUND(p_atm), source=p_atm)
   if (present(pbce)) call pbce_a%alloc(lb=LBOUND(pbce), ub=UBOUND(pbce), source=pbce)
   if (present(eta)) call eta_a%alloc(lb=LBOUND(eta), ub=UBOUND(eta), source=eta)
 
   if (present(pbce) .and. present(eta)) then
-    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a, eta_a)
+    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
+                          pbce_a, eta_a)
   elseif (present(pbce)) then
-    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a=pbce_a)
+    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
+                          pbce_a=pbce_a)
   elseif (present(eta)) then
-    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, eta_a=eta_a)
+    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
+                          eta_a=eta_a)
   else
-    call PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm)
+    call PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a)
   endif
 
+  call PFu_a%copy2F(PFu)
+  call PFv_a%copy2F(PFv)
   if (present(pbce)) call pbce_a%copy2F(pbce)
   if (present(eta)) call eta_a%copy2F(eta)
+  call h_a%free() ; call PFu_a%free() ; call PFv_a%free() ; call p_atm_a%free()
   call pbce_a%free() ; call eta_a%free()
 
 end subroutine PressureForce
 
 !> The implementation of PressureForce (the root of its call tree).
-subroutine PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, pbce_a, eta_a)
+subroutine PressureForce_TR(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
+                            pbce_a, eta_a)
   type(ocean_grid_type),   intent(in)  :: G    !< The ocean's grid structure
   type(verticalGrid_type), intent(in)  :: GV   !< The ocean's vertical grid structure
   type(unit_scale_type),   intent(in)  :: US   !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                           intent(in)  :: h    !< Layer thicknesses [H ~> m or kg m-2]
+  type(RealArray_t),       intent(in)  :: h_a  !< Layer thicknesses [H ~> m or kg m-2]
   type(thermo_var_ptrs),   intent(in)  :: tv   !< A structure pointing to various thermodynamic variables
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), &
-                           intent(out) :: PFu  !< Zonal pressure force acceleration [L T-2 ~> m s-2]
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), &
-                           intent(out) :: PFv  !< Meridional pressure force acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal pressure force acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional pressure force acceleration
+                                            !! [L T-2 ~> m s-2]
   type(PressureForce_CS),  intent(inout) :: CS !< Pressure force control structure
   type(ALE_CS),            pointer     :: ALE_CSp !< ALE control structure
   type(accel_diag_ptrs),   pointer     :: ADp !< Acceleration diagnostic pointers
-  real, dimension(:,:),    pointer     :: p_atm !< The pressure at the ice-ocean or
+  type(RealArray_t),       intent(in)  :: p_atm_a !< The pressure at the ice-ocean or
                                                !! atmosphere-ocean interface [R L2 T-2 ~> Pa].
   type(RealArray_t), &
                  optional, intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer
@@ -112,19 +121,19 @@ subroutine PressureForce_TR(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm,
 
   if (CS%Analytic_FV_PGF) then
     if (GV%Boussinesq) then
-      call PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                   ALE_CSp, ADp, p_atm, pbce_a, eta_a)
+      call PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_FV, &
+                                   ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_FV, &
-                                      ALE_CSp, ADp, p_atm, pbce_a, eta_a)
+      call PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_FV, &
+                                      ALE_CSp, ADp, p_atm_a, pbce_a, eta_a)
     endif
   else
     if (GV%Boussinesq) then
-      call PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                    p_atm, pbce_a, eta_a)
+      call PressureForce_Mont_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_Mont, &
+                                    p_atm_a, pbce_a, eta_a)
     else
-      call PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS%PressureForce_Mont, &
-                                       p_atm, pbce_a, eta_a)
+      call PressureForce_Mont_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS%PressureForce_Mont, &
+                                       p_atm_a, pbce_a, eta_a)
     endif
   endif
 

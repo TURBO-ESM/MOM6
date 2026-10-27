@@ -133,19 +133,19 @@ contains
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, &
+subroutine PressureForce_FV_nonBouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
                                      pbce_a, eta_a)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness [H ~> kg m-2]
+  type(RealArray_t),                          intent(in)  :: h_a !< Layer thickness [H ~> kg m-2]
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration [L T-2 ~> m s-2]
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration [L T-2 ~> m s-2]
   type(PressureForce_FV_CS),                  intent(in)  :: CS  !< Finite volume PGF control structure
   type(ALE_CS),                               pointer     :: ALE_CSp !< ALE control structure
   type(accel_diag_ptrs),                      pointer     :: ADp !< Acceleration diagnostic pointers
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean
                                                            !! or atmosphere-ocean interface [R L2 T-2 ~> Pa].
   type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure
                                                            !! anomaly in each layer due to eta anomalies
@@ -153,8 +153,9 @@ subroutine PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, AD
   type(RealArray_t), optional, intent(inout) :: eta_a !< The total column mass used to
                                                            !! calculate PFu and PFv [H ~> kg m-2].
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: pbce
-  real, dimension(:,:), contiguous, pointer :: eta
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  type(RealArray_t) :: p_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: p ! Interface pressure [R L2 T-2 ~> Pa].
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), target :: &
     T_tmp, &    ! Temporary array of temperatures where layers that are lighter
@@ -290,7 +291,9 @@ subroutine PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, AD
   EOSdom_u(1) = Isq - (G%IsdB-1) ; EOSdom_u(2) = Ieq - (G%IsdB-1)
   EOSdom_v(1) = is - (G%isd-1)   ; EOSdom_v(2) = ie - (G%isd-1)
 
-  nullify(pbce, eta)
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
   if (present(eta_a)) call eta_a%view(eta)
 
@@ -896,7 +899,9 @@ subroutine PressureForce_FV_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, AD
   endif
 
   if (present(pbce_a)) then
-    call set_pbce_nonBouss(p, tv_tmp, G, GV, US, CS%GFS_scale, pbce)
+    call p_a%alloc(lb=LBOUND(p), ub=UBOUND(p), source=p)
+    call set_pbce_nonBouss(p_a, tv_tmp, G, GV, US, CS%GFS_scale, pbce_a)
+    call p_a%free()
   endif
 
   if (present(eta_a)) then
@@ -965,19 +970,19 @@ end subroutine PressureForce_FV_nonBouss
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, p_atm, &
+subroutine PressureForce_FV_Bouss(h_a, tv, PFu_a, PFv_a, G, GV, US, CS, ALE_CSp, ADp, p_atm_a, &
                                   pbce_a, eta_a)
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness [H ~> m]
+  type(RealArray_t),                          intent(in)  :: h_a !< Layer thickness [H ~> m]
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration [L T-2 ~> m s-2]
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration [L T-2 ~> m s-2]
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration [L T-2 ~> m s-2]
   type(PressureForce_FV_CS),                  intent(in)  :: CS  !< Finite volume PGF control structure
   type(ALE_CS),                               pointer     :: ALE_CSp !< ALE control structure
   type(accel_diag_ptrs),                      pointer     :: ADp !< Acceleration diagnostic pointers
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean
                                                          !! or atmosphere-ocean interface [R L2 T-2 ~> Pa].
   type(RealArray_t), optional, intent(inout) :: pbce_a !< The baroclinic pressure
                                                          !! anomaly in each layer due to eta anomalies
@@ -986,8 +991,9 @@ subroutine PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, 
                                                          !! calculate PFu and PFv [H ~> m], with any
                                                          !! tidal contributions.
   ! Local variables
-  real, dimension(:,:,:), contiguous, pointer :: pbce
-  real, dimension(:,:), contiguous, pointer :: eta
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  type(RealArray_t) :: e_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: e ! Interface height in depth units [Z ~> m].
   real, dimension(SZI_(G),SZJ_(G))  :: &
     e_sal_and_tide, & ! The summation of self-attraction and loading and tidal forcing [Z ~> m].
@@ -1140,7 +1146,9 @@ subroutine PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, 
   EOSdom2d(1,:) = EOSdom(:)
   EOSdom2d(2,:) = [Jsq - (G%isd - 1), (je + 1) - (G%jsd - 1)]
 
-  nullify(pbce, eta)
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
   if (present(pbce_a)) call pbce_a%view(pbce)
   if (present(eta_a)) call eta_a%view(eta)
 
@@ -1984,7 +1992,10 @@ subroutine PressureForce_FV_Bouss(h, tv, PFu, PFv, G, GV, US, CS, ALE_CSp, ADp, 
   endif
 
   if (present(pbce_a)) then
-    call set_pbce_Bouss(e, tv_tmp, G, GV, US, rho0_set_pbce, CS%GFS_scale, pbce, nkblock=nkblock)
+    call e_a%alloc(lb=LBOUND(e), ub=UBOUND(e), source=e)
+    call set_pbce_Bouss(e_a, tv_tmp, G, GV, US, rho0_set_pbce, CS%GFS_scale, pbce_a, &
+                        nkblock=nkblock)
+    call e_a%free()
   endif
 
   !$omp target exit data if (use_EOS) &
