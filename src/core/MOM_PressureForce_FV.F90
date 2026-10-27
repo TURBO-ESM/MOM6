@@ -1014,6 +1014,8 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
                                                          !! calculate PFu and PFv [H ~> m], with any
                                                          !! tidal contributions.
   ! Local variables
+  type(Box_t) :: bxQ0_pij ! bxQ0 grown by one point at the end in i and j,
+                         ! [IscB:IecB+1, JscB:JecB+1, 1:nz]
   real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
   real, dimension(:,:), contiguous, pointer :: p_atm, eta
   real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv, mask2dCu, mask2dCv
@@ -1164,6 +1166,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   nkblock = CS%nkblock ; if (nkblock <= 0) nkblock = nz
   nkmb=GV%nk_rho_varies
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
+  bxQ0_pij = bxQ0%growBy(lo=[0,0,0], hi=[1,1,0])
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
   EOSdom_u(1) = Isq - (G%IsdB-1) ; EOSdom_u(2) = Ieq - (G%IsdB-1)
   EOSdom_v(1) = is - (G%isd-1)   ; EOSdom_v(2) = ie - (G%isd-1)
@@ -1217,7 +1220,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
 
   !$omp target enter data map(alloc: e, T_t, T_b, S_t, S_b)
 
-  do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+  do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
     e(i,j,nz+1) = -bathyT(i,j)
   enddo
 
@@ -1274,9 +1277,9 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
     !$omp target update to(e(:,:,nz+1))
   endif
 
-  do concurrent(j=Jsq:Jeq+1)
+  do concurrent(j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2))
     do k=nz,1,-1
-      do concurrent (i=Isq:Ieq+1)
+      do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         e(i,j,K) = e(i,j,K+1) + h(i,j,k)*GV%H_to_Z
       enddo
     enddo
@@ -1336,11 +1339,11 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   ! integrals, assuming that the surface pressure anomaly varies linearly
   ! in x and y.
   if (use_p_atm) then
-    do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+    do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
       pa(i,j,1) = GxRho_ref * (e(i,j,1) - G%Z_ref) + p_atm(i,j)
     enddo
   else
-    do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+    do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
       pa(i,j,1) = GxRho_ref * (e(i,j,1) - G%Z_ref)
     enddo
   endif
@@ -1348,15 +1351,15 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   if (use_EOS) then
     !$omp target enter data map(alloc: Z_0p)
     if (CS%use_SSH_in_Z0p .and. use_p_atm) then
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         Z_0p(i,j) = e(i,j,1) + p_atm(i,j) * I_g_rho
       enddo
     elseif (CS%use_SSH_in_Z0p) then
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         Z_0p(i,j) = e(i,j,1)
       enddo
     else
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         Z_0p(i,j) = meanSL(i,j)
       enddo
     endif
@@ -1428,7 +1431,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   else
     !$omp target data map(alloc: dz_geo)
     do k=1,nz
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         dz_geo(i,j) = GV%g_Earth * GV%H_to_Z*h(i,j,k)
         dpa(i,j,k) = (GV%Rlay(k) - rho_ref) * dz_geo(i,j)
         intz_dpa(i,j,k) = 0.5*(GV%Rlay(k) - rho_ref) * dz_geo(i,j)*h(i,j,k)
@@ -1444,9 +1447,9 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   endif
 
   ! Set the pressure anomalies at the interfaces.
-  do concurrent (j=Jsq:Jeq+1)
+  do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2))
     do k=1,nz
-      do concurrent (i=Isq:Ieq+1)
+      do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         pa(i,j,K+1) = pa(i,j,K) + dpa(i,j,k)
       enddo
     enddo
@@ -2005,7 +2008,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
 
       !$omp end target data
     else
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         dM(i,j) = (CS%GFS_scale - 1.0) * (G_Rho0 * GV%Rlay(1)) * (e(i,j,1) - G%Z_ref)
       enddo
     endif
@@ -2040,24 +2043,24 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   if (eta_a%associated()) then
     ! eta is the sea surface height relative to a time-invariant geoid, for comparison with
     ! what is used for eta in btstep.  See how e was calculated about 200 lines above.
-    do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+    do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
       eta(i,j) = e(i,j,1)*GV%Z_to_H
     enddo
 
     if (CS%tides .and. (.not.CS%bq_sal_tides)) then
       if (CS%tides_answer_date>20230630) then
-        do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+        do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
           eta(i,j) = eta(i,j) + (e_tidal_eq(i,j)+e_tidal_sal(i,j))*GV%Z_to_H
         enddo
       else
-        do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+        do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
           eta(i,j) = eta(i,j) + e_sal_and_tide(i,j)*GV%Z_to_H
         enddo
       endif
     endif
 
     if (CS%calculate_SAL .and. (CS%tides_answer_date>20230630) .and. (.not.CS%bq_sal_tides)) then
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         eta(i,j) = eta(i,j) + e_sal(i,j)*GV%Z_to_H
       enddo
     endif
@@ -2177,6 +2180,7 @@ subroutine PressureForce_FV_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, G
   endif
 
   call e_a%free()
+  call bxQ0_pij%free()
 
 end subroutine PressureForce_FV_Bouss
 
