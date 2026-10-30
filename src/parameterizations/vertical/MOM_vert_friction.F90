@@ -17,12 +17,12 @@ use MOM_diag_mediator, only : diag_ctrl, query_averaging_enabled
 use MOM_domains,       only : create_group_pass, do_group_pass, group_pass_type
 use MOM_domains,       only : To_North, To_East
 use MOM_debugging,     only : uvchksum, hchksum
-use MOM_error_handler, only : MOM_error, FATAL, WARNING, NOTE
+use MOM_error_handler, only : MOM_error, FATAL, WARNING, NOTE, is_root_pe
 use MOM_file_parser,   only : get_param, log_param, log_version, param_file_type
 use MOM_forcing_type,  only : mech_forcing, find_ustar
 use MOM_get_input,     only : directories
 use MOM_grid,          only : ocean_grid_type
-use MOM_grid_containers, only : grid_core_type, grid_core
+use MOM_grid_containers, only : grid_core_type, grid_core, grid_core_C
 use MOM_io,            only : MOM_read_data, slasher
 use MOM_open_boundary, only : ocean_OBC_type, OBC_NONE, OBC_DIRECTION_E
 use MOM_open_boundary, only : OBC_DIRECTION_W, OBC_DIRECTION_N, OBC_DIRECTION_S
@@ -38,9 +38,12 @@ use MOM_wave_interface, only : wave_parameters_CS
 use MOM_set_visc,      only : set_v_at_u, set_u_at_v
 use MOM_lateral_mixing_coeffs, only : VarMix_CS
 use array_mod,         only : RealArray_t, RealArray_C, LogicalArray_t, LogicalArray_C
-use box_mod,           only : Box_t
-use turbotmp_helperF,  only : io_recorder
-use iso_c_binding,     only : c_int, c_bool, c_double
+use box_mod,           only : Box_t, Box_C
+use turbotmp_helperF,  only : io_recorder, getenv_mode, already_recorded, mark_recorded
+use turbotmp_helperF,  only : TIMH_runAMREX, TIMH_capture, TIMH_runFORTRAN
+use posix,             only : mkdir_posix
+use iso_c_binding,     only : c_int, c_bool, c_double, c_null_char
+use iso_c_binding,     only : c_ptr, c_loc, c_null_ptr
 
 
 implicit none ; private
@@ -663,6 +666,219 @@ type, bind(C) :: FPmix_diag_C
   type(RealArray_C) :: vInc_v !< merid Eulerian v-pts [L T-1 ~> m s-1]
 end type FPmix_diag_C
 
+! C interface (bridge to C++)
+interface
+    !> Bridge for the vertvisc_limit_vel subroutine
+    subroutine turbotmp_vertvisc_limit_vel_bridge(bxU0, bxV0, u, v, dt, Gcore, vgrid, CS, &
+                                                  coupling_state, report, ntrunc_sum) bind(C)
+      use iso_c_binding, only : c_double, c_int
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C
+      import :: coupling_state_C, limit_vel_report_C, vertvisc_opts_CS_C, vgrid_consts_C
+      implicit none
+      type(Box_C), intent(in)                 :: bxU0 !< The u-point box of the whole column,
+                                                      !! [IscB:IecB, jsc:jec, 1:nz]
+      type(Box_C), intent(in)                 :: bxV0 !< The v-point box of the whole column,
+                                                      !! [isc:iec, JscB:JecB, 1:nz]
+      type(RealArray_C), intent(inout)        :: u !< Zonal velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(inout)        :: v !< Meridional velocity [L T-1 ~> m s-1]
+      real(c_double), intent(in), value       :: dt !< Time increment [T ~> s]
+      type(grid_core_C), intent(in)           :: Gcore !< Persistent copies of the core ocean grid
+                                                       !! fields
+      type(vgrid_consts_C), intent(in)        :: vgrid !< The vertical grid and unit-scaling
+                                                       !! constants
+      type(vertvisc_opts_CS_C), intent(in)    :: CS !< Vertical viscosity control structure
+      type(coupling_state_C), intent(in)      :: coupling_state !< The viscous coupling coefficients
+                                                                !! and effective layer thicknesses
+                                                                !! at velocity points
+      type(limit_vel_report_C), intent(inout) :: report !< The velocities and flags used to report
+                                                        !! the columns in which velocity truncations
+                                                        !! occur
+      integer(c_int), intent(inout)           :: ntrunc_sum !< The number of velocity truncations,
+                                                            !! added to the value on entry [nondim]
+    end subroutine turbotmp_vertvisc_limit_vel_bridge
+
+    !> Bridge for the vertvisc_remnant_TR subroutine
+    subroutine turbotmp_vertvisc_remnant_tr_bridge(bxU0, bxV0, visc, visc_rem_u, visc_rem_v, dt, &
+                                                   Gcore, ke, coupling_state) bind(C)
+      use iso_c_binding, only : c_double, c_int
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C
+      import :: coupling_state_C, vertvisc_container_C
+      implicit none
+      type(Box_C), intent(in)                :: bxU0 !< The u-point box of the whole column,
+                                                     !! [IscB:IecB, jsc:jec, 1:nz]
+      type(Box_C), intent(in)                :: bxV0 !< The v-point box of the whole column,
+                                                     !! [isc:iec, JscB:JecB, 1:nz]
+      type(vertvisc_container_C), intent(in) :: visc !< Copies of the viscosities and bottom drag
+      type(RealArray_C), intent(inout)       :: visc_rem_u !< Fraction of a time-step's worth of a
+                                                           !! barotropic acceleration that a layer
+                                                           !! experiences after viscosity is applied
+                                                           !! in the zonal direction [nondim]
+      type(RealArray_C), intent(inout)       :: visc_rem_v !< Fraction of a time-step's worth of a
+                                                           !! barotropic acceleration that a layer
+                                                           !! experiences after viscosity is applied
+                                                           !! in the meridional direction [nondim]
+      real(c_double), intent(in), value      :: dt !< Time increment [T ~> s]
+      type(grid_core_C), intent(in)          :: Gcore !< Persistent copies of the core ocean grid
+                                                      !! fields
+      integer(c_int), intent(in), value      :: ke !< The number of layers/levels in the vertical
+      type(coupling_state_C), intent(in)     :: coupling_state !< The viscous coupling coefficients
+                                                               !! and effective layer thicknesses at
+                                                               !! velocity points
+    end subroutine turbotmp_vertvisc_remnant_tr_bridge
+
+    !> Bridge for the vertFPmix_TR subroutine
+    subroutine turbotmp_vertfpmix_tr_bridge(bxU0, bxV0, ui, vi, hbl_h, forces, Us_x, Us_y, dt, &
+                                            Cemp_NL, Irho0, Gcore, coupling_state, FPdiag) bind(C)
+      use iso_c_binding, only : c_double, c_int
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C
+      import :: coupling_state_C, FPmix_diag_C, mech_forcing_container_C
+      implicit none
+      type(Box_C), intent(in)                    :: bxU0 !< The u-point box of the whole column,
+                                                         !! [IscB:IecB, jsc:jec, 1:nz]
+      type(Box_C), intent(in)                    :: bxV0 !< The v-point box of the whole column,
+                                                         !! [isc:iec, JscB:JecB, 1:nz]
+      type(RealArray_C), intent(inout)           :: ui !< Zonal velocity after vertvisc
+                                                       !! [L T-1 ~> m s-1]
+      type(RealArray_C), intent(inout)           :: vi !< Meridional velocity after vertvisc
+                                                       !! [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)              :: hbl_h !< boundary layer depth [H ~> m]
+      type(mech_forcing_container_C), intent(in) :: forces !< Copies of the driving mechanical
+                                                           !! forces
+      type(RealArray_C), intent(in)              :: Us_x !< 3d zonal Stokes drift profile
+                                                         !! [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)              :: Us_y !< 3d meridional Stokes drift profile
+                                                         !! [L T-1 ~> m s-1]
+      real(c_double), intent(in), value          :: dt !< Time increment [T ~> s]
+      real(c_double), intent(in), value          :: Cemp_NL !< empirical coefficient of non-local
+                                                            !! momentum mixing [nondim]
+      real(c_double), intent(in), value          :: Irho0 !< Inverse of the mean density rescaled to
+                                                          !! [Z L-1 R-1 ~> m3 kg-1]
+      type(grid_core_C), intent(in)              :: Gcore !< Persistent copies of the core ocean
+                                                          !! grid fields
+      type(coupling_state_C), intent(in)         :: coupling_state !< The viscous coupling
+                                                                   !! coefficients and effective
+                                                                   !! layer thicknesses at velocity
+                                                                   !! points
+      type(FPmix_diag_C), intent(inout)          :: FPdiag !< The Eulerian velocities and the
+                                                           !! nonlocal stress increments for the
+                                                           !! diagnostics
+    end subroutine turbotmp_vertfpmix_tr_bridge
+
+    !> Bridge for the vertvisc_coef_TR subroutine
+    subroutine turbotmp_vertvisc_coef_tr_bridge(bxU0, bxV0, u, v, h, dz, forces, Ustar_2d, visc, &
+                                                SpV_avg, dt, Gcore, vgrid, CS, coupling_state, &
+                                                OBC, kdgl90_struct, coef_diag) bind(C)
+      use iso_c_binding, only : c_double, c_int, c_ptr
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C
+      import :: coef_opts_CS_C, coupling_state_C, mech_forcing_container_C, vertvisc_coef_diag_C, &
+                vertvisc_container_C, vgrid_consts_C
+      implicit none
+      type(Box_C), intent(in)                    :: bxU0 !< The u-point box of the whole column,
+                                                         !! [IscB:IecB, jsc:jec, 1:nz]
+      type(Box_C), intent(in)                    :: bxV0 !< The v-point box of the whole column,
+                                                         !! [isc:iec, JscB:JecB, 1:nz]
+      type(RealArray_C), intent(in)              :: u !< Zonal velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)              :: v !< Meridional velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)              :: h !< Layer thickness [H ~> m or kg m-2]
+      type(RealArray_C), intent(in)              :: dz !< Vertical distance across layers [Z ~> m]
+      type(mech_forcing_container_C), intent(in) :: forces !< Copies of the driving mechanical
+                                                           !! forces
+      type(RealArray_C), intent(in)              :: Ustar_2d !< The wind friction velocity,
+                                                             !! calculated using the Boussinesq
+                                                             !! reference density or the
+                                                             !! time-evolving surface density in
+                                                             !! non-Boussinesq mode [Z T-1 ~> m s-1]
+      type(vertvisc_container_C), intent(in)     :: visc !< Copies of the viscosities and bottom
+                                                         !! drag
+      type(RealArray_C), intent(in)              :: SpV_avg !< The layer averaged in situ specific
+                                                            !! volume [R-1 ~> m3 kg-1].
+      real(c_double), intent(in), value          :: dt !< Time increment [T ~> s]
+      type(grid_core_C), intent(in)              :: Gcore !< Persistent copies of the core ocean
+                                                          !! grid fields
+      type(vgrid_consts_C), intent(in)           :: vgrid !< The vertical grid and unit-scaling
+                                                          !! constants
+      type(coef_opts_CS_C), intent(in)           :: CS !< Vertical viscosity control structure
+      type(coupling_state_C), intent(inout)      :: coupling_state !< The viscous coupling
+                                                                   !! coefficients and effective
+                                                                   !! layer thicknesses at velocity
+                                                                   !! points
+      type(c_ptr), intent(in), value             :: OBC !< Open boundary condition structure
+      type(RealArray_C), intent(in)              :: kdgl90_struct !< Vertical structure function
+                                                                  !! used in GL90 diffusivity
+                                                                  !! [nondim]
+      type(vertvisc_coef_diag_C), intent(inout)  :: coef_diag !< The diagnostic arrays filled here,
+                                                              !! each allocated only if it is needed
+    end subroutine turbotmp_vertvisc_coef_tr_bridge
+
+    !> Bridge for the vertvisc_TR subroutine
+    subroutine turbotmp_vertvisc_tr_bridge(bxU0, bxV0, u, v, h, forces, visc, dt, OBC, AD, Gcore, &
+                                           vgrid, CS, coupling_state, taux_bot, tauy_bot, KE_u, &
+                                           KE_v, report, ntrunc_sum, fpmix, Us_x, Us_y) bind(C)
+      use iso_c_binding, only : c_bool, c_double, c_int, c_ptr
+      use array_mod, only : RealArray_C
+      use box_mod, only : Box_C
+      use MOM_grid_containers, only : grid_core_C
+      import :: coupling_state_C, limit_vel_report_C, mech_forcing_container_C, vertvisc_AD_C, &
+                vertvisc_container_C, vertvisc_opts_CS_C, vgrid_consts_C
+      implicit none
+      type(Box_C), intent(in)                    :: bxU0 !< The u-point box of the whole column,
+                                                         !! [IscB:IecB, jsc:jec, 1:nz]
+      type(Box_C), intent(in)                    :: bxV0 !< The v-point box of the whole column,
+                                                         !! [isc:iec, JscB:JecB, 1:nz]
+      type(RealArray_C), intent(inout)           :: u !< Zonal velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(inout)           :: v !< Meridional velocity [L T-1 ~> m s-1]
+      type(RealArray_C), intent(in)              :: h !< Layer thickness [H ~> m or kg m-2]
+      type(mech_forcing_container_C), intent(in) :: forces !< Copies of the driving mechanical
+                                                           !! forces
+      type(vertvisc_container_C), intent(inout)  :: visc !< Copies of the viscosities and bottom
+                                                         !! drag
+      real(c_double), intent(in), value          :: dt !< Time increment [T ~> s]
+      type(c_ptr), intent(in), value             :: OBC !< Open boundary condition structure
+      type(vertvisc_AD_C), intent(inout)         :: AD !< Copies of the accelerations in the
+                                                       !! momentum equations for diagnostics
+      type(grid_core_C), intent(in)              :: Gcore !< Persistent copies of the core ocean
+                                                          !! grid fields
+      type(vgrid_consts_C), intent(in)           :: vgrid !< The vertical grid and unit-scaling
+                                                          !! constants
+      type(vertvisc_opts_CS_C), intent(in)       :: CS !< Vertical viscosity control structure
+      type(coupling_state_C), intent(in)         :: coupling_state !< The viscous coupling
+                                                                   !! coefficients and effective
+                                                                   !! layer thicknesses at velocity
+                                                                   !! points
+      type(RealArray_C), intent(inout)           :: taux_bot !< Zonal bottom stress from ocean to
+                                                             !! rock [R L Z T-2 ~> Pa]
+      type(RealArray_C), intent(inout)           :: tauy_bot !< Meridional bottom stress from ocean
+                                                             !! to rock [R L Z T-2 ~> Pa]
+      type(RealArray_C), intent(inout)           :: KE_u !< The area integral of a KE term in a
+                                                         !! layer at u-points
+                                                         !! [H L4 T-3 ~> m5 s-3 or kg m2 s-3]
+      type(RealArray_C), intent(inout)           :: KE_v !< The area integral of a KE term in a
+                                                         !! layer at v-points
+                                                         !! [H L4 T-3 ~> m5 s-3 or kg m2 s-3]
+      type(limit_vel_report_C), intent(inout)    :: report !< The velocities and flags used to
+                                                           !! report the columns in which velocity
+                                                           !! truncations occur
+      integer(c_int), intent(inout)              :: ntrunc_sum !< The number of velocity
+                                                               !! truncations, added to the value on
+                                                               !! entry [nondim]
+      logical(c_bool), intent(in), value         :: fpmix !< fpmix along Eulerian shear
+      type(RealArray_C), intent(in)              :: Us_x !< 3d zonal Stokes drift profile
+                                                         !! [L T-1 ~> m s-1] Horizontal -> U points
+                                                         !! Vertical -> Mid-points
+      type(RealArray_C), intent(in)              :: Us_y !< 3d meridional Stokes drift profile
+                                                         !! [L T-1 ~> m s-1] Horizontal -> V points
+                                                         !! Vertical -> Mid-points
+    end subroutine turbotmp_vertvisc_tr_bridge
+end interface
+
 contains
 
 !> Add nonlocal stress increments to ui^n and vi^n.
@@ -750,8 +966,8 @@ end subroutine vertFPmix
 
 !> Adds the nonlocal stress increments to ui^n and vi^n, and returns the Eulerian velocities and
 !! the increments for the diagnostics.
-subroutine vertFPmix_TR(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_a, dt, Cemp_NL, &
-                        Irho0, Gcore, coupling_state, FPdiag_a)
+subroutine vertFPmix_TR_fortran(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_a, dt, &
+                                Cemp_NL, Irho0, Gcore, coupling_state, FPdiag_a)
   type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
                                                    !! [IscB:IecB, jsc:jec, 1:nz]
   type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
@@ -896,6 +1112,124 @@ subroutine vertFPmix_TR(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_
       enddo
     endif
   enddo
+
+end subroutine vertFPmix_TR_fortran
+
+!> Dispatches vertFPmix_TR to the Fortran implementation, to a capture of its inputs and
+!! outputs, or to the C++/AMReX bridge, as selected by VERTFPMIX_TR_MODE.
+subroutine vertFPmix_TR(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_a, dt, Cemp_NL, &
+                        Irho0, Gcore, coupling_state, FPdiag_a)
+  type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
+                                                   !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
+                                                   !! [isc:iec, JscB:JecB, 1:nz]
+  type(RealArray_t),       intent(inout) :: ui_a   !< Zonal velocity after vertvisc [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(inout) :: vi_a   !< Meridional velocity after vertvisc
+                                                   !! [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(in)    :: hbl_h_a !<  boundary layer depth [H ~> m]
+  type(mech_forcing_container_type), &
+                           intent(in)    :: forces_a !< Copies of the driving mechanical forces
+  type(RealArray_t),       intent(in)    :: Us_x_a !< 3d zonal Stokes drift profile [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(in)    :: Us_y_a !< 3d meridional Stokes drift profile
+                                                   !! [L T-1 ~> m s-1]
+  real,                    intent(in) :: dt      !< Time increment [T ~> s]
+  real,                    intent(in) :: Cemp_NL !< empirical coefficient of non-local momentum
+                                                 !! mixing [nondim]
+  real,                    intent(in)    :: Irho0  !< Inverse of the mean density rescaled to
+                                                   !! [Z L-1 R-1 ~> m3 kg-1]
+  type(grid_core_type),   intent(in)    :: Gcore  !< Persistent copies of the core ocean grid fields
+  type(coupling_state_type), &
+                           intent(in)    :: coupling_state !< The viscous coupling coefficients and
+                                                           !! effective layer thicknesses at
+                                                           !! velocity points
+  type(FPmix_diag_type),   intent(inout) :: FPdiag_a !< The Eulerian velocities and the nonlocal
+                                                     !! stress increments for the diagnostics
+
+  ! Local variables
+  integer            :: mode, rc
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  type(Box_C)        :: bxU0_c
+  type(Box_C)        :: bxV0_c
+  type(RealArray_C)  :: ui_c
+  type(RealArray_C)  :: vi_c
+  type(RealArray_C)  :: hbl_h_c
+  type(mech_forcing_container_C) :: forces_c
+  type(RealArray_C)  :: Us_x_c
+  type(RealArray_C)  :: Us_y_c
+  type(coupling_state_C) :: coupling_state_cdesc
+  type(FPmix_diag_C) :: FPdiag_c
+
+  kernel = "vertfpmix_tr"
+  mode = getenv_mode("VERTFPMIX_TR_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxU0", bxU0)
+        call rec%add("_bxV0", bxV0)
+        call rec%add("_ui_before", ui_a)
+        call rec%add("_vi_before", vi_a)
+        call rec%add("_hbl_h", hbl_h_a)
+        call record_mech_forcing_container(rec, "_forces", forces_a, "")
+        call record_mech_forcing_container(rec, "_forces", forces_a, "_before")
+        call rec%add("_Us_x", Us_x_a)
+        call rec%add("_Us_y", Us_y_a)
+        call rec%add("_dt", dt)
+        call rec%add("_Cemp_NL", Cemp_NL)
+        call rec%add("_Irho0", Irho0)
+        call rec%add("_mask2dCu", Gcore%mask2dCu)
+        call rec%add("_mask2dCv", Gcore%mask2dCv)
+        call rec%add("_mask2dT", Gcore%mask2dT)
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "")
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_before")
+        call record_FPmix_diag(rec, "_FPdiag", FPdiag_a, "")
+        call record_FPmix_diag(rec, "_FPdiag", FPdiag_a, "_before")
+      endif
+
+      call vertFPmix_TR_fortran(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_a, dt, &
+                                Cemp_NL, Irho0, Gcore, coupling_state, FPdiag_a)
+
+      if (capture) then
+        call rec%add("_ui_after", ui_a)
+        call rec%add("_vi_after", vi_a)
+        call record_FPmix_diag(rec, "_FPdiag", FPdiag_a, "_after")
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxU0_c = bxU0%to_c()
+      bxV0_c = bxV0%to_c()
+      ui_c = ui_a%to_c()
+      vi_c = vi_a%to_c()
+      hbl_h_c = hbl_h_a%to_c()
+      forces_c = mech_forcing_container_to_c(forces_a)
+      Us_x_c = Us_x_a%to_c()
+      Us_y_c = Us_y_a%to_c()
+      coupling_state_cdesc = coupling_state_to_c(coupling_state)
+      FPdiag_c = FPmix_diag_to_c(FPdiag_a)
+      call turbotmp_vertfpmix_tr_bridge(bxU0_c, bxV0_c, ui_c, vi_c, hbl_h_c, forces_c, Us_x_c, &
+                                        Us_y_c, dt, Cemp_NL, Irho0, Gcore%C, coupling_state_cdesc, &
+                                        FPdiag_c)
+#endif
+
+    case default
+      call vertFPmix_TR_fortran(bxU0, bxV0, ui_a, vi_a, hbl_h_a, forces_a, Us_x_a, Us_y_a, dt, &
+                                Cemp_NL, Irho0, Gcore, coupling_state, FPdiag_a)
+
+  end select
 
 end subroutine vertFPmix_TR
 
@@ -2129,9 +2463,9 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
 end subroutine vertvisc
 
 !> The implementation of vertvisc (the root of its call tree).
-subroutine vertvisc_TR(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_a, Gcore, vgrid, &
-                       CS, coupling_state, taux_bot_a, tauy_bot_a, KE_u_a, KE_v_a, report_a, &
-                       ntrunc_sum, fpmix, Us_x_a, Us_y_a)
+subroutine vertvisc_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_a, Gcore, &
+                               vgrid, CS, coupling_state, taux_bot_a, tauy_bot_a, KE_u_a, KE_v_a, &
+                               report_a, ntrunc_sum, fpmix, Us_x_a, Us_y_a)
   type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
                                                    !! [IscB:IecB, jsc:jec, 1:nz]
   type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
@@ -2821,6 +3155,199 @@ subroutine vertvisc_TR(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_
     enddo
   endif
 
+end subroutine vertvisc_TR_fortran
+
+!> Dispatches vertvisc_TR to the Fortran implementation, to a capture of its inputs and
+!! outputs, or to the C++/AMReX bridge, as selected by VERTVISC_TR_MODE.
+subroutine vertvisc_TR(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_a, Gcore, vgrid, &
+                       CS, coupling_state, taux_bot_a, tauy_bot_a, KE_u_a, KE_v_a, report_a, &
+                       ntrunc_sum, fpmix, Us_x_a, Us_y_a)
+  type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
+                                                   !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
+                                                   !! [isc:iec, JscB:JecB, 1:nz]
+  type(grid_core_type),   intent(in)    :: Gcore  !< Persistent copies of the core ocean grid fields
+  type(vgrid_consts_CS),   intent(in)    :: vgrid  !< The vertical grid and unit-scaling constants
+  type(RealArray_t),       intent(inout) :: u_a    !< Zonal velocity [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(inout) :: v_a    !< Meridional velocity [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(in)    :: h_a    !< Layer thickness [H ~> m or kg m-2]
+  type(mech_forcing_container_type), &
+                         intent(in)      :: forces_a !< Copies of the driving mechanical forces
+  type(vertvisc_container_type), &
+                         intent(inout)   :: visc_a !< Copies of the viscosities and bottom drag
+  real,                  intent(in)      :: dt     !< Time increment [T ~> s]
+  type(ocean_OBC_type),  pointer         :: OBC    !< Open boundary condition structure
+  type(vertvisc_AD_type), intent(inout)  :: AD_a   !< Copies of the accelerations in the momentum
+                                                   !! equations for diagnostics
+  type(vertvisc_opts_CS),  intent(in)    :: CS     !< Vertical viscosity control structure
+  type(coupling_state_type), &
+                           intent(in)    :: coupling_state !< The viscous coupling coefficients and
+                                                           !! effective layer thicknesses at
+                                                           !! velocity points
+  type(RealArray_t),       intent(inout) :: taux_bot_a !< Zonal bottom stress from ocean to
+                                                       !! rock [R L Z T-2 ~> Pa]
+  type(RealArray_t),       intent(inout) :: tauy_bot_a !< Meridional bottom stress from ocean to
+                                                       !! rock [R L Z T-2 ~> Pa]
+  type(RealArray_t),       intent(inout) :: KE_u_a !< The area integral of a KE term in a layer at
+                                                   !! u-points [H L4 T-3 ~> m5 s-3 or kg m2 s-3]
+  type(RealArray_t),       intent(inout) :: KE_v_a !< The area integral of a KE term in a layer at
+                                                   !! v-points [H L4 T-3 ~> m5 s-3 or kg m2 s-3]
+  type(limit_vel_report_type), &
+                           intent(inout) :: report_a !< The velocities and flags used to report the
+                                                     !! columns in which velocity truncations occur
+  integer,                 intent(inout) :: ntrunc_sum !< The number of velocity truncations, added
+                                                       !! to the value on entry [nondim]
+  logical,                   intent(in)  :: fpmix !< fpmix along Eulerian shear
+  type(RealArray_t),       intent(in)    :: Us_x_a !< 3d zonal Stokes drift profile [L T-1 ~> m s-1]
+                                                   !! Horizontal -> U points
+                                                   !! Vertical -> Mid-points
+  type(RealArray_t),       intent(in)    :: Us_y_a !< 3d meridional Stokes drift profile
+                                                   !! [L T-1 ~> m s-1]
+                                                   !! Horizontal -> V points
+                                                   !! Vertical -> Mid-points
+
+  ! Local variables
+  integer            :: mode, rc
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  type(Box_C)        :: bxU0_c
+  type(Box_C)        :: bxV0_c
+  type(RealArray_C)  :: u_c
+  type(RealArray_C)  :: v_c
+  type(RealArray_C)  :: h_c
+  type(mech_forcing_container_C) :: forces_c
+  type(vertvisc_container_C) :: visc_c
+  type(c_ptr)        :: OBC_c
+  type(vertvisc_AD_C) :: AD_c
+  type(vgrid_consts_C) :: vgrid_c
+  type(vertvisc_opts_CS_C) :: CS_c
+  type(coupling_state_C) :: coupling_state_cdesc
+  type(RealArray_C)  :: taux_bot_c
+  type(RealArray_C)  :: tauy_bot_c
+  type(RealArray_C)  :: KE_u_c
+  type(RealArray_C)  :: KE_v_c
+  type(limit_vel_report_C) :: report_c
+  integer(c_int)     :: ntrunc_sum_c
+  logical(c_bool)    :: fpmix_c
+  type(RealArray_C)  :: Us_x_c
+  type(RealArray_C)  :: Us_y_c
+
+  kernel = "vertvisc_tr"
+  mode = getenv_mode("VERTVISC_TR_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxU0", bxU0)
+        call rec%add("_bxV0", bxV0)
+        call rec%add("_u_before", u_a)
+        call rec%add("_v_before", v_a)
+        call rec%add("_h", h_a)
+        call record_mech_forcing_container(rec, "_forces", forces_a, "")
+        call record_mech_forcing_container(rec, "_forces", forces_a, "_before")
+        call record_vertvisc_container(rec, "_visc", visc_a, "")
+        call record_vertvisc_container(rec, "_visc", visc_a, "_before")
+        call rec%add("_dt", dt)
+        call rec%add("_OBC_associated", associated(OBC))
+        call record_vertvisc_AD(rec, "_AD", AD_a, "")
+        call record_vertvisc_AD(rec, "_AD", AD_a, "_before")
+        call rec%add("_areaCu", Gcore%areaCu)
+        call rec%add("_areaCv", Gcore%areaCv)
+        call rec%add("_mask2dCu", Gcore%mask2dCu)
+        call rec%add("_mask2dCv", Gcore%mask2dCv)
+        call record_vgrid_consts_CS(rec, "_vgrid", vgrid)
+        call record_vertvisc_opts_CS(rec, "_CS", CS)
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "")
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_before")
+        call rec%add("_taux_bot_allocated", taux_bot_a%associated())
+        if (taux_bot_a%associated()) call rec%add("_taux_bot_before", taux_bot_a)
+        call rec%add("_tauy_bot_allocated", tauy_bot_a%associated())
+        if (tauy_bot_a%associated()) call rec%add("_tauy_bot_before", tauy_bot_a)
+        call rec%add("_KE_u_allocated", KE_u_a%associated())
+        if (KE_u_a%associated()) call rec%add("_KE_u_before", KE_u_a)
+        call rec%add("_KE_v_allocated", KE_v_a%associated())
+        if (KE_v_a%associated()) call rec%add("_KE_v_before", KE_v_a)
+        call record_limit_vel_report(rec, "_report", report_a, "")
+        call record_limit_vel_report(rec, "_report", report_a, "_before")
+        call rec%add("_ntrunc_sum_before", ntrunc_sum)
+        call rec%add("_fpmix", fpmix)
+        call rec%add("_Us_x_allocated", Us_x_a%associated())
+        if (Us_x_a%associated()) call rec%add("_Us_x", Us_x_a)
+        call rec%add("_Us_y_allocated", Us_y_a%associated())
+        if (Us_y_a%associated()) call rec%add("_Us_y", Us_y_a)
+      endif
+
+      call vertvisc_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_a, Gcore, &
+                               vgrid, CS, coupling_state, taux_bot_a, tauy_bot_a, KE_u_a, KE_v_a, &
+                               report_a, ntrunc_sum, fpmix, Us_x_a, Us_y_a)
+
+      if (capture) then
+        call rec%add("_u_after", u_a)
+        call rec%add("_v_after", v_a)
+        call record_vertvisc_container(rec, "_visc", visc_a, "_after")
+        call record_vertvisc_AD(rec, "_AD", AD_a, "_after")
+        if (taux_bot_a%associated()) call rec%add("_taux_bot_after", taux_bot_a)
+        if (tauy_bot_a%associated()) call rec%add("_tauy_bot_after", tauy_bot_a)
+        if (KE_u_a%associated()) call rec%add("_KE_u_after", KE_u_a)
+        if (KE_v_a%associated()) call rec%add("_KE_v_after", KE_v_a)
+        call record_limit_vel_report(rec, "_report", report_a, "_after")
+        call rec%add("_ntrunc_sum_after", ntrunc_sum)
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxU0_c = bxU0%to_c()
+      bxV0_c = bxV0%to_c()
+      u_c = u_a%to_c()
+      v_c = v_a%to_c()
+      h_c = h_a%to_c()
+      forces_c = mech_forcing_container_to_c(forces_a)
+      visc_c = vertvisc_container_to_c(visc_a)
+      if (associated(OBC)) then
+        OBC_c = c_loc(OBC)
+      else
+        OBC_c = c_null_ptr
+      endif
+      AD_c = vertvisc_AD_to_c(AD_a)
+      vgrid_c = vgrid_consts_to_c(vgrid)
+      CS_c = vertvisc_opts_CS_to_c(CS)
+      coupling_state_cdesc = coupling_state_to_c(coupling_state)
+      taux_bot_c = taux_bot_a%to_c()
+      tauy_bot_c = tauy_bot_a%to_c()
+      KE_u_c = KE_u_a%to_c()
+      KE_v_c = KE_v_a%to_c()
+      report_c = limit_vel_report_to_c(report_a)
+      ntrunc_sum_c = ntrunc_sum
+      fpmix_c = fpmix
+      Us_x_c = Us_x_a%to_c()
+      Us_y_c = Us_y_a%to_c()
+      call turbotmp_vertvisc_tr_bridge(bxU0_c, bxV0_c, u_c, v_c, h_c, forces_c, visc_c, dt, OBC_c, &
+                                       AD_c, Gcore%C, vgrid_c, CS_c, coupling_state_cdesc, &
+                                       taux_bot_c, tauy_bot_c, KE_u_c, KE_v_c, report_c, &
+                                       ntrunc_sum_c, fpmix_c, Us_x_c, Us_y_c)
+      ntrunc_sum = ntrunc_sum_c
+      call limit_vel_report_from_c(report_a)
+#endif
+
+    case default
+      call vertvisc_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, forces_a, visc_a, dt, OBC, AD_a, Gcore, &
+                               vgrid, CS, coupling_state, taux_bot_a, tauy_bot_a, KE_u_a, KE_v_a, &
+                               report_a, ntrunc_sum, fpmix, Us_x_a, Us_y_a)
+
+  end select
+
 end subroutine vertvisc_TR
 
 !> Offers the diagnostics of the vertical viscosity calculations, including the KE source from
@@ -2996,8 +3523,8 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
 end subroutine vertvisc_remnant
 
 !> The implementation of vertvisc_remnant (the root of its call tree).
-subroutine vertvisc_remnant_TR(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, dt, Gcore, ke, &
-                               coupling_state)
+subroutine vertvisc_remnant_TR_fortran(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, dt, Gcore, &
+                                       ke, coupling_state)
   type(Box_t),           intent(in)   :: bxU0 !< The u-point box of the whole column,
                                              !! [IscB:IecB, jsc:jec, 1:nz]
   type(Box_t),           intent(in)   :: bxV0 !< The v-point box of the whole column,
@@ -3131,6 +3658,105 @@ subroutine vertvisc_remnant_TR(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, d
     enddo
   enddo
 
+end subroutine vertvisc_remnant_TR_fortran
+
+!> Dispatches vertvisc_remnant_TR to the Fortran implementation, to a capture of its inputs and
+!! outputs, or to the C++/AMReX bridge, as selected by VERTVISC_REMNANT_TR_MODE.
+subroutine vertvisc_remnant_TR(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, dt, Gcore, ke, &
+                               coupling_state)
+  type(Box_t),           intent(in)   :: bxU0 !< The u-point box of the whole column,
+                                             !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),           intent(in)   :: bxV0 !< The v-point box of the whole column,
+                                             !! [isc:iec, JscB:JecB, 1:nz]
+  type(grid_core_type), intent(in)    :: Gcore !< Persistent copies of the core ocean grid fields
+  integer,               intent(in)   :: ke   !< The number of layers/levels in the vertical
+  type(vertvisc_container_type), &
+                         intent(in)   :: visc_a !< Copies of the viscosities and bottom drag
+  type(RealArray_t),     intent(inout) :: visc_rem_u_a !< Fraction of a time-step's worth of a
+                                                       !! barotropic acceleration that a layer
+                                                       !! experiences after viscosity is applied in
+                                                       !! the zonal direction [nondim]
+  type(RealArray_t),     intent(inout) :: visc_rem_v_a !< Fraction of a time-step's worth of a
+                                                       !! barotropic acceleration that a layer
+                                                       !! experiences after viscosity is applied in
+                                                       !! the meridional direction [nondim]
+  real,                  intent(in)    :: dt  !< Time increment [T ~> s]
+  type(coupling_state_type), &
+                         intent(in)    :: coupling_state !< The viscous coupling coefficients
+                                                         !! and effective layer thicknesses at
+                                                         !! velocity points
+
+  ! Local variables
+  integer            :: mode, rc
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  type(Box_C)        :: bxU0_c
+  type(Box_C)        :: bxV0_c
+  type(vertvisc_container_C) :: visc_c
+  type(RealArray_C)  :: visc_rem_u_c
+  type(RealArray_C)  :: visc_rem_v_c
+  integer(c_int)     :: ke_c
+  type(coupling_state_C) :: coupling_state_cdesc
+
+  kernel = "vertvisc_remnant_tr"
+  mode = getenv_mode("VERTVISC_REMNANT_TR_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxU0", bxU0)
+        call rec%add("_bxV0", bxV0)
+        call record_vertvisc_container(rec, "_visc", visc_a, "")
+        call record_vertvisc_container(rec, "_visc", visc_a, "_before")
+        call rec%add("_visc_rem_u_before", visc_rem_u_a)
+        call rec%add("_visc_rem_v_before", visc_rem_v_a)
+        call rec%add("_dt", dt)
+        call rec%add("_mask2dCu", Gcore%mask2dCu)
+        call rec%add("_mask2dCv", Gcore%mask2dCv)
+        call rec%add("_ke", ke)
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "")
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_before")
+      endif
+
+      call vertvisc_remnant_TR_fortran(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, dt, Gcore, &
+                                       ke, coupling_state)
+
+      if (capture) then
+        call rec%add("_visc_rem_u_after", visc_rem_u_a)
+        call rec%add("_visc_rem_v_after", visc_rem_v_a)
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxU0_c = bxU0%to_c()
+      bxV0_c = bxV0%to_c()
+      visc_c = vertvisc_container_to_c(visc_a)
+      visc_rem_u_c = visc_rem_u_a%to_c()
+      visc_rem_v_c = visc_rem_v_a%to_c()
+      ke_c = ke
+      coupling_state_cdesc = coupling_state_to_c(coupling_state)
+      call turbotmp_vertvisc_remnant_tr_bridge(bxU0_c, bxV0_c, visc_c, visc_rem_u_c, visc_rem_v_c, &
+                                               dt, Gcore%C, ke_c, coupling_state_cdesc)
+#endif
+
+    case default
+      call vertvisc_remnant_TR_fortran(bxU0, bxV0, visc_a, visc_rem_u_a, visc_rem_v_a, dt, Gcore, &
+                                       ke, coupling_state)
+
+  end select
+
 end subroutine vertvisc_remnant_TR
 
 !> Writes the debugging checksums of the fractions of a time-step's worth of a barotropic
@@ -3237,6 +3863,14 @@ subroutine vertvisc_coef(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, 
     call coef_diag_a%hML_u_a%alloc(lb=[G%IsdB,G%jsd], ub=[G%IedB,G%jed], source=0.0)
   if (CS%debug .or. (CS%id_hML_v > 0)) &
     call coef_diag_a%hML_v_a%alloc(lb=[G%isd,G%JsdB], ub=[G%ied,G%JedB], source=0.0)
+  if ((visc_a%taux_shelf_a%associated() .or. forces_a%frac_shelf_u_a%associated()) .and. &
+      .not.CS%coupling_state%a1_shelf_u%associated()) then
+    call CS%coupling_state%a1_shelf_u%alloc(lb=u_a%lb(1:2), ub=u_a%ub(1:2), source=0.0)
+  endif
+  if ((visc_a%tauy_shelf_a%associated() .or. forces_a%frac_shelf_v_a%associated()) .and. &
+      .not.CS%coupling_state%a1_shelf_v%associated()) then
+    call CS%coupling_state%a1_shelf_v%alloc(lb=v_a%lb(1:2), ub=v_a%ub(1:2), source=0.0)
+  endif
 
   !$omp target enter data map(alloc: Ustar_2d)
   call find_ustar(forces, tv, Ustar_2d, G, GV, US, halo=1)
@@ -3269,9 +3903,9 @@ subroutine vertvisc_coef(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, 
 end subroutine vertvisc_coef
 
 !> The implementation of vertvisc_coef (the root of its call tree).
-subroutine vertvisc_coef_TR(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_a, visc_a, &
-                            SpV_avg_a, dt, Gcore, vgrid, CS, coupling_state, OBC, kdgl90_struct_a, &
-                            coef_diag_a)
+subroutine vertvisc_coef_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_a, visc_a, &
+                                    SpV_avg_a, dt, Gcore, vgrid, CS, coupling_state, OBC, &
+                                    kdgl90_struct_a, coef_diag_a)
   type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
                                                    !! [IscB:IecB, jsc:jec, 1:nz]
   type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
@@ -3505,14 +4139,6 @@ subroutine vertvisc_coef_TR(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_
   a_cpl_max = 1.0e37 * vgrid%m_to_H * vgrid%T_to_s
   I_valBL = 0.0 ; if (CS%harm_BL_val > 0.0) I_valBL = 1.0 / CS%harm_BL_val
 
-  if ((associated(taux_shelf) .or. associated(frac_shelf_u)) .and. &
-      .not.coupling_state%a1_shelf_u%associated()) then
-    call coupling_state%a1_shelf_u%alloc(lb=u_a%lb(1:2), ub=u_a%ub(1:2), source=0.0)
-  endif
-  if ((associated(tauy_shelf) .or. associated(frac_shelf_v)) .and. &
-      .not.coupling_state%a1_shelf_v%associated()) then
-    call coupling_state%a1_shelf_v%alloc(lb=v_a%lb(1:2), ub=v_a%ub(1:2), source=0.0)
-  endif
   nullify(a1_shelf_u, a1_shelf_v)
   if (coupling_state%a1_shelf_u%associated()) call coupling_state%a1_shelf_u%view(a1_shelf_u)
   if (coupling_state%a1_shelf_v%associated()) call coupling_state%a1_shelf_v%view(a1_shelf_v)
@@ -4156,6 +4782,158 @@ subroutine vertvisc_coef_TR(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_
   ! These are used in diagnostics, so they need to be mapped back and forth
   !$omp target exit data map(from: hML_u, kv_u, kv_gl90_u )
   !$omp target exit data map(from: hML_v, kv_v, kv_gl90_v)
+
+end subroutine vertvisc_coef_TR_fortran
+
+!> Dispatches vertvisc_coef_TR to the Fortran implementation, to a capture of its inputs and
+!! outputs, or to the C++/AMReX bridge, as selected by VERTVISC_COEF_TR_MODE.
+subroutine vertvisc_coef_TR(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_a, visc_a, &
+                            SpV_avg_a, dt, Gcore, vgrid, CS, coupling_state, OBC, kdgl90_struct_a, &
+                            coef_diag_a)
+  type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
+                                                   !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
+                                                   !! [isc:iec, JscB:JecB, 1:nz]
+  type(grid_core_type),   intent(in)    :: Gcore  !< Persistent copies of the core ocean grid fields
+  type(vgrid_consts_CS),   intent(in)    :: vgrid  !< The vertical grid and unit-scaling constants
+  type(RealArray_t),       intent(in)    :: u_a    !< Zonal velocity [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(in)    :: v_a    !< Meridional velocity [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(in)    :: h_a    !< Layer thickness [H ~> m or kg m-2]
+  type(RealArray_t),       intent(in)    :: dz_a   !< Vertical distance across layers [Z ~> m]
+  type(mech_forcing_container_type), &
+                           intent(in)    :: forces_a !< Copies of the driving mechanical forces
+  type(RealArray_t),       intent(in)    :: Ustar_2d_a !< The wind friction velocity, calculated
+                                                       !! using the Boussinesq reference density or
+                                                       !! the time-evolving surface density in
+                                                       !! non-Boussinesq mode [Z T-1 ~> m s-1]
+  type(vertvisc_container_type), &
+                           intent(in)    :: visc_a !< Copies of the viscosities and bottom drag
+  type(RealArray_t),       intent(in)    :: SpV_avg_a !< The layer averaged in situ specific volume
+                                                      !! [R-1 ~> m3 kg-1].
+  real,                    intent(in)    :: dt     !< Time increment [T ~> s]
+  type(coef_opts_CS),      intent(in)    :: CS     !< Vertical viscosity control structure
+  type(coupling_state_type), &
+                           intent(inout) :: coupling_state !< The viscous coupling coefficients and
+                                                           !! effective layer thicknesses at
+                                                           !! velocity points
+  type(ocean_OBC_type),    pointer       :: OBC    !< Open boundary condition structure
+  type(RealArray_t),       intent(in)    :: kdgl90_struct_a !< Vertical structure function used in
+                                                            !! GL90 diffusivity [nondim]
+  type(vertvisc_coef_diag_type), &
+                           intent(inout) :: coef_diag_a !< The diagnostic arrays filled here, each
+                                                        !! allocated only if it is needed
+
+  ! Local variables
+  integer            :: mode, rc
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  type(Box_C)        :: bxU0_c
+  type(Box_C)        :: bxV0_c
+  type(RealArray_C)  :: u_c
+  type(RealArray_C)  :: v_c
+  type(RealArray_C)  :: h_c
+  type(RealArray_C)  :: dz_c
+  type(mech_forcing_container_C) :: forces_c
+  type(RealArray_C)  :: Ustar_2d_c
+  type(vertvisc_container_C) :: visc_c
+  type(RealArray_C)  :: SpV_avg_c
+  type(vgrid_consts_C) :: vgrid_c
+  type(coef_opts_CS_C) :: CS_c
+  type(coupling_state_C) :: coupling_state_cdesc
+  type(c_ptr)        :: OBC_c
+  type(RealArray_C)  :: kdgl90_struct_c
+  type(vertvisc_coef_diag_C) :: coef_diag_c
+
+  kernel = "vertvisc_coef_tr"
+  mode = getenv_mode("VERTVISC_COEF_TR_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxU0", bxU0)
+        call rec%add("_bxV0", bxV0)
+        call rec%add("_u", u_a)
+        call rec%add("_v", v_a)
+        call rec%add("_h", h_a)
+        call rec%add("_dz", dz_a)
+        call record_mech_forcing_container(rec, "_forces", forces_a, "")
+        call record_mech_forcing_container(rec, "_forces", forces_a, "_before")
+        call rec%add("_Ustar_2d", Ustar_2d_a)
+        call record_vertvisc_container(rec, "_visc", visc_a, "")
+        call record_vertvisc_container(rec, "_visc", visc_a, "_before")
+        call rec%add("_SpV_avg_allocated", SpV_avg_a%associated())
+        if (SpV_avg_a%associated()) call rec%add("_SpV_avg", SpV_avg_a)
+        call rec%add("_dt", dt)
+        call rec%add("_bathyT", Gcore%bathyT)
+        call rec%add("_CoriolisBu", Gcore%CoriolisBu)
+        call rec%add("_mask2dCu", Gcore%mask2dCu)
+        call rec%add("_mask2dCv", Gcore%mask2dCv)
+        call record_vgrid_consts_CS(rec, "_vgrid", vgrid)
+        call record_coef_opts_CS(rec, "_CS", CS)
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "")
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_before")
+        call rec%add("_OBC_associated", associated(OBC))
+        call rec%add("_kdgl90_struct_allocated", kdgl90_struct_a%associated())
+        if (kdgl90_struct_a%associated()) call rec%add("_kdgl90_struct", kdgl90_struct_a)
+        call record_vertvisc_coef_diag(rec, "_coef_diag", coef_diag_a, "")
+        call record_vertvisc_coef_diag(rec, "_coef_diag", coef_diag_a, "_before")
+      endif
+
+      call vertvisc_coef_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_a, visc_a, &
+                                    SpV_avg_a, dt, Gcore, vgrid, CS, coupling_state, OBC, &
+                                    kdgl90_struct_a, coef_diag_a)
+
+      if (capture) then
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_after")
+        call record_vertvisc_coef_diag(rec, "_coef_diag", coef_diag_a, "_after")
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxU0_c = bxU0%to_c()
+      bxV0_c = bxV0%to_c()
+      u_c = u_a%to_c()
+      v_c = v_a%to_c()
+      h_c = h_a%to_c()
+      dz_c = dz_a%to_c()
+      forces_c = mech_forcing_container_to_c(forces_a)
+      Ustar_2d_c = Ustar_2d_a%to_c()
+      visc_c = vertvisc_container_to_c(visc_a)
+      SpV_avg_c = SpV_avg_a%to_c()
+      vgrid_c = vgrid_consts_to_c(vgrid)
+      CS_c = coef_opts_CS_to_c(CS)
+      coupling_state_cdesc = coupling_state_to_c(coupling_state)
+      if (associated(OBC)) then
+        OBC_c = c_loc(OBC)
+      else
+        OBC_c = c_null_ptr
+      endif
+      kdgl90_struct_c = kdgl90_struct_a%to_c()
+      coef_diag_c = vertvisc_coef_diag_to_c(coef_diag_a)
+      call turbotmp_vertvisc_coef_tr_bridge(bxU0_c, bxV0_c, u_c, v_c, h_c, dz_c, forces_c, &
+                                            Ustar_2d_c, visc_c, SpV_avg_c, dt, Gcore%C, vgrid_c, &
+                                            CS_c, coupling_state_cdesc, OBC_c, kdgl90_struct_c, &
+                                            coef_diag_c)
+#endif
+
+    case default
+      call vertvisc_coef_TR_fortran(bxU0, bxV0, u_a, v_a, h_a, dz_a, forces_a, Ustar_2d_a, visc_a, &
+                                    SpV_avg_a, dt, Gcore, vgrid, CS, coupling_state, OBC, &
+                                    kdgl90_struct_a, coef_diag_a)
+
+  end select
 
 end subroutine vertvisc_coef_TR
 
@@ -5387,8 +6165,8 @@ end subroutine find_coupling_coef
 !! and the running sum of the number of trunctionas within the non-symmetric memory computational
 !! domain is incremented.  Optionally, any column with excessive velocities may be sent
 !! to a diagnostic reporting subroutine.
-subroutine vertvisc_limit_vel(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupling_state, &
-                              report_a, ntrunc_sum)
+subroutine vertvisc_limit_vel_fortran(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupling_state, &
+                                      report_a, ntrunc_sum)
   type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
                                                    !! [IscB:IecB, jsc:jec, 1:nz]
   type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
@@ -5593,6 +6371,115 @@ subroutine vertvisc_limit_vel(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupli
   endif
 
   !$omp target exit data map(release: u_old, v_old, dowrite, vel_report)
+end subroutine vertvisc_limit_vel_fortran
+
+!> Dispatches vertvisc_limit_vel to the Fortran implementation, to a capture of its inputs and
+!! outputs, or to the C++/AMReX bridge, as selected by VERTVISC_LIMIT_VEL_MODE.
+subroutine vertvisc_limit_vel(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupling_state, &
+                              report_a, ntrunc_sum)
+  type(Box_t),             intent(in)    :: bxU0   !< The u-point box of the whole column,
+                                                   !! [IscB:IecB, jsc:jec, 1:nz]
+  type(Box_t),             intent(in)    :: bxV0   !< The v-point box of the whole column,
+                                                   !! [isc:iec, JscB:JecB, 1:nz]
+  type(grid_core_type),   intent(in)    :: Gcore  !< Persistent copies of the core ocean grid fields
+  type(vgrid_consts_CS),   intent(in)    :: vgrid  !< The vertical grid and unit-scaling constants
+  type(RealArray_t),       intent(inout) :: u_a    !< Zonal velocity [L T-1 ~> m s-1]
+  type(RealArray_t),       intent(inout) :: v_a    !< Meridional velocity [L T-1 ~> m s-1]
+  real,                    intent(in)    :: dt     !< Time increment [T ~> s]
+  type(vertvisc_opts_CS),  intent(in)    :: CS     !< Vertical viscosity control structure
+  type(coupling_state_type), &
+                           intent(in)    :: coupling_state !< The viscous coupling coefficients and
+                                                           !! effective layer thicknesses at
+                                                           !! velocity points
+  type(limit_vel_report_type), &
+                           intent(inout) :: report_a !< The velocities and flags used to report the
+                                                     !! columns in which velocity truncations occur
+  integer,                 intent(inout) :: ntrunc_sum !< The number of velocity truncations, added
+                                                       !! to the value on entry [nondim]
+
+  ! Local variables
+  integer            :: mode, rc
+  type(io_recorder)  :: rec
+  logical            :: capture
+  character(len=80)  :: kernel
+  character(len=100) :: dir
+  character(len=256) :: binFile, metaFile
+  type(Box_C)        :: bxU0_c
+  type(Box_C)        :: bxV0_c
+  type(RealArray_C)  :: u_c
+  type(RealArray_C)  :: v_c
+  type(vgrid_consts_C) :: vgrid_c
+  type(vertvisc_opts_CS_C) :: CS_c
+  type(coupling_state_C) :: coupling_state_cdesc
+  type(limit_vel_report_C) :: report_c
+  integer(c_int)     :: ntrunc_sum_c
+
+  kernel = "vertvisc_limit_vel"
+  mode = getenv_mode("VERTVISC_LIMIT_VEL_MODE", default=TIMH_runFORTRAN)
+
+  select case (mode)
+
+    case (TIMH_capture)
+      capture = (.not. already_recorded(trim(kernel))) .and. is_root_pe()
+      if (capture) then
+        dir = "capture"
+        rc = mkdir_posix(trim(dir) // c_null_char, int(o'755', c_int))
+        binFile  = trim(dir) // "/" // trim(kernel) // ".bin"
+        metaFile = trim(dir) // "/" // trim(kernel) // ".meta"
+        call rec%open_write(binFile, metaFile)
+        call rec%add("_bxU0", bxU0)
+        call rec%add("_bxV0", bxV0)
+        call rec%add("_u_before", u_a)
+        call rec%add("_v_before", v_a)
+        call rec%add("_dt", dt)
+        call rec%add("_areaT", Gcore%areaT)
+        call rec%add("_dx_Cv", Gcore%dx_Cv)
+        call rec%add("_dy_Cu", Gcore%dy_Cu)
+        call rec%add("_IareaT", Gcore%IareaT)
+        call record_vgrid_consts_CS(rec, "_vgrid", vgrid)
+        call record_vertvisc_opts_CS(rec, "_CS", CS)
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "")
+        call record_coupling_state(rec, "_coupling_state", coupling_state, "_before")
+        call record_limit_vel_report(rec, "_report", report_a, "")
+        call record_limit_vel_report(rec, "_report", report_a, "_before")
+        call rec%add("_ntrunc_sum_before", ntrunc_sum)
+      endif
+
+      call vertvisc_limit_vel_fortran(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupling_state, &
+                                      report_a, ntrunc_sum)
+
+      if (capture) then
+        call rec%add("_u_after", u_a)
+        call rec%add("_v_after", v_a)
+        call record_limit_vel_report(rec, "_report", report_a, "_after")
+        call rec%add("_ntrunc_sum_after", ntrunc_sum)
+        call rec%close()
+        call mark_recorded(trim(kernel))
+      endif
+
+#ifdef _TIM
+    case (TIMH_runAMREX)
+      bxU0_c = bxU0%to_c()
+      bxV0_c = bxV0%to_c()
+      u_c = u_a%to_c()
+      v_c = v_a%to_c()
+      vgrid_c = vgrid_consts_to_c(vgrid)
+      CS_c = vertvisc_opts_CS_to_c(CS)
+      coupling_state_cdesc = coupling_state_to_c(coupling_state)
+      report_c = limit_vel_report_to_c(report_a)
+      ntrunc_sum_c = ntrunc_sum
+      call turbotmp_vertvisc_limit_vel_bridge(bxU0_c, bxV0_c, u_c, v_c, dt, Gcore%C, vgrid_c, &
+                                              CS_c, coupling_state_cdesc, report_c, ntrunc_sum_c)
+      ntrunc_sum = ntrunc_sum_c
+      call limit_vel_report_from_c(report_a)
+#endif
+
+    case default
+      call vertvisc_limit_vel_fortran(bxU0, bxV0, u_a, v_a, dt, Gcore, vgrid, CS, coupling_state, &
+                                      report_a, ntrunc_sum)
+
+  end select
+
 end subroutine vertvisc_limit_vel
 
 !> Writes the accelerations in the columns with large velocities to the truncation files.
