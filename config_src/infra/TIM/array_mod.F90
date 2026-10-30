@@ -3,39 +3,14 @@ module array_mod
   use iso_c_binding, only : c_double, c_int, c_ptr, c_loc, c_null_ptr
   use MOM_error_infra, only : MOM_err, FATAL
   use amrex_mempool_module, only : amrex_allocate, amrex_deallocate
+  ! The bind(C) types come from TIM so this build has one definition of each.
+  ! They are re-exported below so callers keep using array_mod.
+  use turbotmp_bridge_c_types, only: RealArray_C, IntArray_C, LogicalArray_C
   implicit none
   private
   public :: RealArray_t, RealArray_c
   public :: IntArray_t
   public :: LogicalArray_t, LogicalArray_c
-
-  !< Type IntArray_C struct for C++ bridge layer
-  type, bind(C) :: IntArray_C
-     type(c_ptr) :: data               !< Storage pointer for array container
-     type(c_ptr) :: shape              !< An array of dimension extents
-     type(c_ptr) :: lb                 !< Lower bounds
-     type(c_ptr) :: ub                 !< Upper bounds
-     integer(c_int) :: rank            !< The number of dimensions
-  end type IntArray_C
-
-  !< RealArray struct for C bridge
-  type, bind(C) :: RealArray_C
-     type(c_ptr) :: data               !< Storage pointer for array container
-     type(c_ptr) :: shape              !< An array of dimension extents
-     type(c_ptr) :: lb                 !< Lower bounds
-     type(c_ptr) :: ub                 !< Upper bounds
-     integer(c_int) :: rank            !< The number of dimensions
-  end type RealArray_C
-
-  !< LogicalArray struct for C bridge. The data pointer is integer-encoded
-  !! (0/1) -- see LogicalArray_t%to_c.
-  type, bind(C) :: LogicalArray_C
-     type(c_ptr) :: data               !< Storage pointer for array container
-     type(c_ptr) :: shape              !< An array of dimension extents
-     type(c_ptr) :: lb                 !< Lower bounds
-     type(c_ptr) :: ub                 !< Upper bounds
-     integer(c_int) :: rank            !< The number of dimensions
-  end type LogicalArray_C
 
   type :: RealArray_t
      real(kind=real64), pointer, contiguous :: data(:) => null() !< Storage ptr for array container

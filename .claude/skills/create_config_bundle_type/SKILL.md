@@ -238,7 +238,7 @@ On the C++ side, a scalar-only `<cluster>_CS_C` needs no marshalling
 helper. The bridge passes it as `const <cluster>_CS_C*`, and the kernel
 reads its fields directly through `const <cluster>_CS_C&`. Its full
 definition lives in the module's kernel header, not in the shared
-`turbotmp_bridge_c_types.h` (TIM `generate_amrex_code` lessons.md §2.2).
+`turbotmp_bridge_c_types.h` (protoMOMxx `generate_amrex_code` lessons.md §2.2).
 Keep the `bind(C)` mirror's field order and kinds (`c_int`, `c_bool`,
 `c_double`) exactly matching what that header declares.
 

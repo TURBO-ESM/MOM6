@@ -17,7 +17,7 @@ i=Isq:Ieq+1)` — which is the right low-risk choice while converting
 argument types. But it hides the structure the AMReX port needs. There,
 each loop is a `ParallelFor` over one `amrex::Box`, and the bridge
 builds that box from a `Box_C`
-(TIM `generate_amrex_code` lessons.md §3). A loop whose range is only a
+(protoMOMxx `generate_amrex_code` lessons.md §3). A loop whose range is only a
 set of scalar expressions has no box to hand over.
 
 The ranges in a tree look numerous but are not. In CorAdCalc, 15

@@ -141,7 +141,7 @@ edits it, never the implementation/`_TR` subroutine.
   CorAdCalc's 23 WENO/UP3 helpers, continuity's `flux_elem`) → **not a
   container target and not a bridge target.** In Phase 3 it becomes an
   `AMREX_GPU_DEVICE AMREX_FORCE_INLINE` device primitive in the owning
-  kernel's `<module>_kernel.hpp` (TIM `generate_amrex_code`, pointwise
+  kernel's `<module>_kernel.hpp` (protoMOMxx `generate_amrex_code`, pointwise
   device primitive tier), called from inside that kernel's
   `ParallelFor`. A `bind(C)` call per grid point would be prohibitively
   slow. Leave it out of the Phase 3 wave computation; the box-level
@@ -379,11 +379,11 @@ every shim's public signature is unchanged from what Phase 2 left it
 (bridging must not alter a signature — only rename and wrap). Report
 the AMReX side (the C++ implementation behind each `bind(C)` interface)
 as the explicit next deliverable this skill does not produce. That is
-TIM's `generate_amrex_code` skill, one invocation per bridged
+protoMOMxx's `generate_amrex_code` skill, one invocation per bridged
 subroutine, with `generate_amrex_unit_test` for its tests. List the
 per-point kernels (Step 2) each bridged kernel calls, since
 `generate_amrex_code` ports them as device primitives in the same
-invocation rather than as bridges of their own. Also check the TIM
+invocation rather than as bridges of their own. Also check the protoMOMxx
 checkout is recent enough for the bridge API the skills describe: for
 example, `turbotmp::make_array4` taking the array's own `lb`, and
 `IntA4Box` for `LogicalArray_C`.
