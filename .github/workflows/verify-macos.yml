@@ -4,7 +4,13 @@
 
 name: MacOS verification
 
-on: [push, pull_request]
+# Feature branches are tested through their pull requests. Pushes to the long-lived
+# dev/ branches still run, so that each merge is tested; on Linux, those runs also
+# provide the GPU port baseline that pull requests are compared against.
+on:
+  push:
+    branches: ['dev/**']
+  pull_request:
 
 env:
   CC: gcc
