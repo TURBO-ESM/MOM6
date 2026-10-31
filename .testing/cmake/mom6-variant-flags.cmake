@@ -6,14 +6,13 @@
 # the end of project(MOM6). Adds MOM6_VARIANT_FCFLAGS (the .testing debug or
 # repro flags) to MOM6's own targets only. The bundled packages keep the global
 # flags, as in the autoconf build, which compiles them with FCFLAGS_FMS; the
-# debug flags include -std=f2018, which they do not conform to. mom6_marbl is
-# MARBL itself, built only when MARBL_SOURCE_DIR is given; the MARBL API stubs
-# (mom6_marbl_stubs) are MOM6 code and get the variant flags. The 8-byte real
-# flag, which every target needs, comes from mom6-real8.cmake.
+# debug flags include -std=f2018, which they do not conform to. The MARBL API
+# stubs are MOM6 code, compiled into mom6_ocean, and get the variant flags. The
+# 8-byte real flag, which every target needs, comes from mom6-real8.cmake.
 
 include("${CMAKE_CURRENT_LIST_DIR}/mom6-real8.cmake")
 
-set(_mom6_bundled_targets mom6_cvmix mom6_gsw mom6_marbl)
+set(_mom6_bundled_targets mom6_cvmix mom6_gsw)
 
 # Collect the build-system targets defined in a directory and its subdirectories
 function(_mom6_collect_targets dir out)

@@ -2,7 +2,7 @@ set(_EXT    "${MOM6_SOURCE_DIR}/config_src/external")
 
 # mom6_ocean: the MOM6 model — every src/ file except the model-agnostic
 # framework (mom6_framework) and the infra wrapper (mom6_infra), plus the
-# config_src/external/ stubs (MARBL excluded — provided by MARBL::marbl).
+# config_src/external/ stubs (the MARBL ones only without MARBL::marbl).
 # One library; CMake's Fortran scanner orders compilation from the module graph.
 add_library(mom6_ocean STATIC)
 add_library(MOM6::ocean ALIAS mom6_ocean)
@@ -15,7 +15,7 @@ target_include_directories(mom6_ocean
     PRIVATE   ${MOM6_MEMORY_DIR}
 )
 target_link_libraries(mom6_ocean
-    PUBLIC MOM6::framework MOM6::CVMix MOM6::GSW MARBL::marbl
+    PUBLIC MOM6::framework MOM6::CVMix MOM6::GSW
 )
 
 # I/O modules from src/framework/: they depend on grid (which also lives in
@@ -38,7 +38,7 @@ target_sources(mom6_ocean PRIVATE
     framework/MOM_horizontal_regridding.F90
 )
 
-# External stubs (MARBL excluded — provided by MARBL::marbl).
+# External stubs (MARBL below).
 target_sources(mom6_ocean PRIVATE
     ${_EXT}/GFDL_ocean_BGC/MOM_generic_tracer.F90
     ${_EXT}/ODA_hooks/kdtree.f90
@@ -52,6 +52,19 @@ target_sources(mom6_ocean PRIVATE
     ${_EXT}/stochastic_physics/get_stochy_pattern.F90
     ${_EXT}/stochastic_physics/stochastic_physics.F90
 )
+
+# MARBL: a parent project that builds MARBL (turbo-stack) defines MARBL::marbl
+# before add_subdirectory(); otherwise compile the API stubs, as autoconf does.
+if(TARGET MARBL::marbl)
+    target_link_libraries(mom6_ocean PUBLIC MARBL::marbl)
+else()
+    target_sources(mom6_ocean PRIVATE
+        ${_EXT}/MARBL/marbl_constants_mod.F90
+        ${_EXT}/MARBL/marbl_interface.F90
+        ${_EXT}/MARBL/marbl_interface_public_types.F90
+        ${_EXT}/MARBL/marbl_logging.F90
+    )
+endif()
 
 # Compilation order between these subdirectories no longer matters: they all
 # add sources to the single mom6_ocean target and CMake orders by module graph.
