@@ -8,7 +8,10 @@
 # flags, as in the autoconf build, which compiles them with FCFLAGS_FMS; the
 # debug flags include -std=f2018, which they do not conform to. mom6_marbl is
 # MARBL itself, built only when MARBL_SOURCE_DIR is given; the MARBL API stubs
-# (mom6_marbl_stubs) are MOM6 code and get the variant flags.
+# (mom6_marbl_stubs) are MOM6 code and get the variant flags. The 8-byte real
+# flag, which every target needs, comes from mom6-real8.cmake.
+
+include("${CMAKE_CURRENT_LIST_DIR}/mom6-real8.cmake")
 
 set(_mom6_bundled_targets mom6_cvmix mom6_gsw mom6_marbl)
 

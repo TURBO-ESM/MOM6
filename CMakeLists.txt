@@ -59,7 +59,7 @@ endif()
 if(NOT TARGET MARBL::marbl)
     if(NOT MARBL_SOURCE_DIR)
         set(MARBL_SOURCE_DIR "$ENV{MARBL_ROOT}" CACHE PATH
-            "Path to MARBL source checkout (required for standalone MOM6 builds)")
+            "Path to a MARBL source checkout to build (default: the MARBL API stubs)")
     endif()
     if(NOT MARBL_SOURCE_DIR)
         # No MARBL source given: build the API stubs in config_src/external/MARBL,
@@ -83,8 +83,9 @@ if(NOT TARGET MARBL::marbl)
         unset(_marbl_stubs)
     elseif(NOT IS_DIRECTORY "${MARBL_SOURCE_DIR}")
         message(FATAL_ERROR
-            "MARBL::marbl not defined and MARBL_SOURCE_DIR is not set or invalid.\n"
-            "Set MARBL_ROOT in the environment or pass -DMARBL_SOURCE_DIR=/path/to/MARBL")
+            "MARBL_SOURCE_DIR (${MARBL_SOURCE_DIR}) is not a directory.\n"
+            "Point MARBL_ROOT or -DMARBL_SOURCE_DIR at a MARBL source checkout, "
+            "or unset both to use the MARBL API stubs")
     else()
         include(MARBLTargets)
     endif()

@@ -48,8 +48,6 @@
 #   FCFLAGS_INIT        Variable initialization flags
 #   FCFLAGS_COVERAGE    Code coverage flags
 #   FCFLAGS_FMS         FMS build flags (default: FCFLAGS_DEBUG)
-#   FCFLAGS_REAL8       8-byte default real flags (cmake only; autoconf detects
-#                       them)
 #
 #   LDFLAGS_COVERAGE    Linker coverage flags
 #   LDFLAGS_USER        User-defined linker flags (used for all MOM/FMS builds)
@@ -109,8 +107,6 @@ ifeq ($(filter $(BUILDSYS),autoconf cmake),)
   $(error Unknown BUILDSYS '$(BUILDSYS)'; use autoconf or cmake)
 endif
 CMAKE ?= cmake
-CMAKE_BUILD_PARALLEL_LEVEL ?= $(shell getconf _NPROCESSORS_ONLN)
-export CMAKE_BUILD_PARALLEL_LEVEL
 
 # Builds are distinguished by FCFLAGS
 FCFLAGS ?= -g -O0
@@ -121,7 +117,6 @@ FCFLAGS_OPT ?= -g -O3 -mavx -fno-omit-frame-pointer
 FCFLAGS_INIT ?=
 FCFLAGS_COVERAGE ?= -g -O0 -fbacktrace --coverage
 FCFLAGS_FMS ?= $(FCFLAGS)
-FCFLAGS_REAL8 ?= -fdefault-real-8 -fdefault-double-8
 # Additional notes:
 # - These default values are simple, minimalist flags, supported by nearly all
 #   compilers, and are somewhat analogous to GFDL's DEBUG and REPRO builds.
@@ -310,8 +305,9 @@ ifeq ($(BUILDSYS),cmake)
 # Only the solo-driver variants can be built with CMake so far
 CMAKE_EXECS = symmetric asymmetric repro
 
+# '+' lets the generated Makefiles share this make's job slots (-j)
 $(foreach b,$(CMAKE_EXECS),$(BUILD)/$(b)/MOM6): $(BUILD)/%/MOM6: $(BUILD)/%/CMakeCache.txt FORCE
-	$(TIME) $(CMAKE) --build $(@D) --target MOM6
+	+$(TIME) $(CMAKE) --build $(@D) --target MOM6
 
 $(BUILD)/%/MOM6: FORCE
 	@echo "BUILDSYS=cmake cannot build $@ yet; use BUILDSYS=autoconf" >&2
@@ -383,15 +379,16 @@ CMAKE_PKG_SOURCE = $(CODEBASE)/pkg/CVMix-src/src/shared/cvmix_kinds_and_types.F9
 
 # Every target, including the bundled CVMix and GSW, gets the flags that the
 # dependencies are built with; cmake/mom6-variant-flags.cmake adds the variant
-# flags to MOM6's own targets only. FMS's installed package lacks the
-# FindNetCDF.cmake it needs, so take it from the FMS source.
+# flags to MOM6's own targets only, and detects and adds the 8-byte real flag
+# to every target. FMS's installed package lacks the FindNetCDF.cmake it needs,
+# so take it from the FMS source.
 $(BUILD)/%/CMakeCache.txt: $(DEPS)/cmake/lib/cmake/fms/fms-config.cmake $(CMAKE_PKG_SOURCE) | $(BUILD)/%/
 	$(CMAKE) -S $(CODEBASE) -B $(@D) \
 	  -DCMAKE_PREFIX_PATH=$(abspath $(DEPS)/cmake) \
 	  -DCMAKE_MODULE_PATH=$(abspath $(DEPS)/fms/src/cmake) \
 	  -DMOM6_INFRA=FMS2 \
 	  -DMOM6_MEMORY_MODE=$(MOM_CMAKE_MEMORY_MODE) \
-	  -DCMAKE_Fortran_FLAGS="$(FCFLAGS_FMS) $(FCFLAGS_REAL8)" \
+	  -DCMAKE_Fortran_FLAGS="$(FCFLAGS_FMS)" \
 	  -DCMAKE_PROJECT_MOM6_INCLUDE=$(CODEBASE)/.testing/cmake/mom6-variant-flags.cmake \
 	  -DMOM6_VARIANT_FCFLAGS="$(MOM_CMAKE_FCFLAGS)" \
 	  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(abspath $(@D))
@@ -419,12 +416,18 @@ else
 deps: $(DEPS)/lib/libFMS.a $(DEPS)/lib/libgsw.a $(DEPS)/lib/libcvmix.a
 endif
 
-# FMS for CMake builds, from the same source and commit as the autoconf build
+# FMS for CMake builds, from the same source and commit as the autoconf build.
+# FMS forces CMAKE_BUILD_TYPE=Release, with its own optimization flags, unless
+# given a standard build type. It sets no flags for RelWithDebInfo, so emptying
+# that build type's flags builds FMS with FCFLAGS_FMS, as the autoconf build does.
 $(DEPS)/cmake/lib/cmake/fms/fms-config.cmake: | $(DEPS)/fms/src
 	$(CMAKE) -S $(DEPS)/fms/src -B $(DEPS)/fms/cmake-build \
 	  -DCMAKE_INSTALL_PREFIX=$(abspath $(DEPS)/cmake) \
+	  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+	  -DCMAKE_Fortran_FLAGS_RELWITHDEBINFO= \
+	  -DCMAKE_Fortran_FLAGS="$(FCFLAGS_FMS)" \
 	  -D64BIT=ON -D32BIT=OFF -DFPIC=ON -DOPENMP=OFF
-	$(CMAKE) --build $(DEPS)/fms/cmake-build
+	+$(CMAKE) --build $(DEPS)/fms/cmake-build
 	$(CMAKE) --install $(DEPS)/fms/cmake-build
 
 $(DEPS)/fms/src: $(DEPS)/Makefile
