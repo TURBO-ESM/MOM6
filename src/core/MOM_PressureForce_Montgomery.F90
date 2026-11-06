@@ -1,6 +1,7 @@
 ! This file is part of MOM6, the Modular Ocean Model version 6.
 ! See the LICENSE file for licensing information.
 ! SPDX-License-Identifier: Apache-2.0
+!!SKILLS: 0.3.2
 
 !> Provides the Montgomery potential form of pressure gradient
 module MOM_PressureForce_Mont
@@ -11,6 +12,7 @@ use MOM_diag_mediator, only : safe_alloc_ptr, diag_ctrl, time_type
 use MOM_error_handler, only : MOM_error, MOM_mesg, FATAL, WARNING, is_root_pe
 use MOM_file_parser, only : get_param, log_param, log_version, param_file_type
 use MOM_grid, only : ocean_grid_type
+use MOM_grid_containers, only : grid_core_type
 use MOM_self_attr_load, only : calc_SAL, SAL_CS
 use MOM_tidal_forcing, only : calc_tidal_forcing, tidal_forcing_CS
 use MOM_unit_scaling, only : unit_scale_type
@@ -18,6 +20,8 @@ use MOM_variables, only : thermo_var_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use MOM_EOS, only : calculate_density, calculate_density_derivs
 use MOM_EOS, only : query_compressible
+use array_mod, only : RealArray_t
+use box_mod, only : Box_t
 
 implicit none ; private
 
@@ -67,31 +71,41 @@ contains
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce, eta)
+subroutine PressureForce_Mont_nonBouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                                       p_atm_a, pbce_a, eta_a)
+  type(Box_t),          intent(in)  :: bxH0  !< The h-point box of the whole column,
+                                             !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0  !< The B-grid-index box of the whole column,
+                                             !! [IscB:IecB, JscB:JecB, 1:nz]
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure.
+  type(grid_core_type), intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure.
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness, [H ~> kg m-2].
+  type(RealArray_t), intent(in) :: h_a !< Layer thickness, [H ~> kg m-2].
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables.
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration due to pressure gradients
                                                                  !! (equal to -dM/dx) [L T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration due to pressure gradients
                                                                  !! (equal to -dM/dy) [L T-2 ~> m s-2].
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean or
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                  !! atmosphere-ocean [R L2 T-2 ~> Pa].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                                    optional, intent(out) :: pbce !< The baroclinic pressure anomaly in
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                  !! each layer due to free surface height anomalies,
                                                                  !! [L2 T-2 H-1 ~> m s-2 or m4 kg-1 s-2].
-  real, dimension(SZI_(G),SZJ_(G)), optional, intent(out) :: eta !< The total column mass used to calculate
+  type(RealArray_t), intent(inout) :: eta_a !< The total column mass used to calculate
                                                                  !! PFu and PFv [H ~> kg m-2].
   ! Local variables
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv
+  type(RealArray_t) :: p_a, alpha_star_a, Rlay_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     M, &          ! The Montgomery potential, M = (p/rho + gz)  [L2 T-2 ~> m2 s-2].
-    alpha_star, & ! Compression adjusted specific volume [R-1 ~> m3 kg-1].
     dz_geo        !   The change in geopotential across a layer [L2 T-2 ~> m2 s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: p ! Interface pressure [R L2 T-2 ~> Pa].
+  real, dimension(:,:,:), contiguous, pointer :: &
+    alpha_star    ! Compression adjusted specific volume [R-1 ~> m3 kg-1].
+  real, dimension(:,:,:), contiguous, pointer :: p ! Interface pressure [R L2 T-2 ~> Pa].
                 ! p may be adjusted (with a nonlinear equation of state) so that
                 ! its derivative compensates for the adiabatic compressibility
                 ! in seawater, but p will still be close to the pressure.
@@ -143,8 +157,19 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
 
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
+  call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call p_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call p_a%view(p)
+  call alpha_star_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke])
+  call alpha_star_a%view(alpha_star)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
+
   use_p_atm = associated(p_atm)
-  is_split = present(pbce)
+  is_split = pbce_a%associated()
   use_EOS = associated(tv%eqn_of_state)
 
   if (.not.CS%initialized) call MOM_error(FATAL, &
@@ -173,7 +198,7 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
     p(i,j,K+1) = p(i,j,K) + GV%g_Earth * GV%H_to_RZ * h(i,j,k)
   enddo ; enddo ; enddo
 
-  if (present(eta)) then
+  if (eta_a%associated()) then
     Pa_to_H = 1.0 / (GV%g_Earth * GV%H_to_RZ)
     if (use_p_atm) then
       !$OMP parallel do default(shared)
@@ -190,7 +215,7 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
 
   !$OMP parallel do default(shared)
   do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-    geopot_bot(i,j) = -GV%g_Earth * G%bathyT(i,j)
+    geopot_bot(i,j) = -GV%g_Earth * bathyT(i,j)
   enddo ; enddo
 
   ! Calculate and add the self-attraction and loading geopotential anomaly.
@@ -199,7 +224,7 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
     ! of self-attraction and loading.
     !$OMP parallel do default(shared)
     do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-      SSH(i,j) = min(-G%bathyT(i,j) - G%meanSL(i,j), 0.0)
+      SSH(i,j) = min(-bathyT(i,j) - meanSL(i,j), 0.0)
     enddo ; enddo
     if (use_EOS) then
       !$OMP parallel do default(shared)
@@ -324,8 +349,11 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   endif
 
   ! Note that ddM/dPb = alpha_star(i,j,1)
-  if (present(pbce)) then
-    call Set_pbce_nonBouss(p, tv_tmp, G, GV, US, CS%GFS_scale, pbce, alpha_star)
+  if (pbce_a%associated()) then
+    call Rlay_a%alloc(lb=LBOUND(GV%Rlay), ub=UBOUND(GV%Rlay), source=GV%Rlay)
+    call Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv_tmp, G%isd, GV%ke, GV%g_Earth, GV%H_to_RZ, &
+                           GV%H_subroundoff, Rlay_a, CS%GFS_scale, pbce_a, alpha_star_a)
+    call Rlay_a%free()
   endif
 
 !    Calculate the pressure force. On a Cartesian grid,
@@ -338,17 +366,17 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
       enddo ; enddo
       do j=js,je ; do I=Isq,Ieq
         ! PFu_bc = p* grad alpha*
-        PFu_bc = (alpha_star(i+1,j,k) - alpha_star(i,j,k)) * (G%IdxCu(I,j) * &
+        PFu_bc = (alpha_star(i+1,j,k) - alpha_star(i,j,k)) * (IdxCu(I,j) * &
             ((dp_star(i,j)*dp_star(i+1,j) + ((p(i,j,K)*dp_star(i+1,j)) + (p(i+1,j,K)*dp_star(i,j)))) / &
              (dp_star(i,j) + dp_star(i+1,j))))
-        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * G%IdxCu(I,j) + PFu_bc
+        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * IdxCu(I,j) + PFu_bc
         if (allocated(CS%PFu_bc)) CS%PFu_bc(i,j,k) = PFu_bc
       enddo ; enddo
       do J=Jsq,Jeq ; do i=is,ie
-        PFv_bc = (alpha_star(i,j+1,k) - alpha_star(i,j,k)) * (G%IdyCv(i,J) * &
+        PFv_bc = (alpha_star(i,j+1,k) - alpha_star(i,j,k)) * (IdyCv(i,J) * &
             ((dp_star(i,j)*dp_star(i,j+1) + ((p(i,j,K)*dp_star(i,j+1)) + (p(i,j+1,K)*dp_star(i,j)))) / &
              (dp_star(i,j) + dp_star(i,j+1))))
-        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * G%IdyCv(i,J) + PFv_bc
+        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * IdyCv(i,J) + PFv_bc
         if (allocated(CS%PFv_bc)) CS%PFv_bc(i,j,k) = PFv_bc
       enddo ; enddo
     enddo ! k-loop
@@ -356,10 +384,10 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
     !$OMP parallel do default(shared)
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
-        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * G%IdxCu(I,j)
+        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * IdxCu(I,j)
       enddo ; enddo
       do J=Jsq,Jeq ; do i=is,ie
-        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * G%IdyCv(i,J)
+        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * IdyCv(i,J)
       enddo ; enddo
     enddo
   endif ! use_EOS
@@ -373,6 +401,8 @@ subroutine PressureForce_Mont_nonBouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pb
   if (CS%id_e_tide_eq>0) call post_data(CS%id_e_tide_eq, e_tide_eq, CS%diag)
   if (CS%id_e_tide_sal>0) call post_data(CS%id_e_tide_sal, e_tide_sal, CS%diag)
 
+  call p_a%free() ; call alpha_star_a%free()
+
 end subroutine PressureForce_Mont_nonBouss
 
 !> \brief Boussinesq Montgomery-potential form of pressure gradient
@@ -382,29 +412,40 @@ end subroutine PressureForce_Mont_nonBouss
 !! To work, the following fields must be set outside of the usual (is:ie,js:je)
 !! range before this subroutine is called:
 !!   h(isB:ie+1,jsB:je+1), T(isB:ie+1,jsB:je+1), and S(isB:ie+1,jsB:je+1).
-subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce, eta)
+subroutine PressureForce_Mont_Bouss(bxH0, bxQ0, h_a, tv, PFu_a, PFv_a, G, Gcore, GV, US, CS, &
+                                    p_atm_a, pbce_a, eta_a)
+  type(Box_t),          intent(in)  :: bxH0  !< The h-point box of the whole column,
+                                             !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0  !< The B-grid-index box of the whole column,
+                                             !! [IscB:IecB, JscB:JecB, 1:nz]
   type(ocean_grid_type),                      intent(in)  :: G   !< Ocean grid structure.
+  type(grid_core_type), intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
   type(verticalGrid_type),                    intent(in)  :: GV  !< Vertical grid structure.
   type(unit_scale_type),                      intent(in)  :: US  !< A dimensional unit scaling type
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)  :: h   !< Layer thickness [H ~> m].
+  type(RealArray_t), intent(in) :: h_a !< Layer thickness [H ~> m].
   type(thermo_var_ptrs),                      intent(in)  :: tv  !< Thermodynamic variables.
-  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(out) :: PFu !< Zonal acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFu_a !< Zonal acceleration due to pressure gradients
                                                                  !! (equal to -dM/dx) [L T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(out) :: PFv !< Meridional acceleration due to pressure gradients
+  type(RealArray_t), intent(inout) :: PFv_a !< Meridional acceleration due to pressure gradients
                                                                  !! (equal to -dM/dy) [L T-2 ~> m s-2].
   type(PressureForce_Mont_CS),                intent(inout) :: CS  !< Control structure for Montgomery potential PGF
-  real, dimension(:,:),                       pointer     :: p_atm !< The pressure at the ice-ocean or
+  type(RealArray_t), intent(in) :: p_atm_a !< The pressure at the ice-ocean or
                                                                 !! atmosphere-ocean [R L2 T-2 ~> Pa].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), optional, intent(out) :: pbce !< The baroclinic pressure anomaly in
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in
                                                                 !! each layer due to free surface height anomalies
                                                                 !! [L2 T-2 H-1 ~> m s-2].
-  real, dimension(SZI_(G),SZJ_(G)),          optional, intent(out) :: eta !< Free surface height [H ~> m].
+  type(RealArray_t), intent(inout) :: eta_a !< Free surface height [H ~> m].
   ! Local variables
+  real, dimension(:,:,:), contiguous, pointer :: h, PFu, PFv, pbce
+  real, dimension(:,:), contiguous, pointer :: p_atm, eta
+  real, dimension(:,:), contiguous, pointer :: bathyT, meanSL, IdxCu, IdyCv
+  type(RealArray_t) :: e_a, rho_star_a, g_prime_a
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
-    M, &        ! The Montgomery potential, M = (p/rho + gz) [L2 T-2 ~> m2 s-2].
+    M           ! The Montgomery potential, M = (p/rho + gz) [L2 T-2 ~> m2 s-2].
+  real, dimension(:,:,:), contiguous, pointer :: &
     rho_star    ! In-situ density divided by the derivative with depth of the
                 ! corrected e times (G_Earth/Rho0) [L2 Z-1 T-2 ~> m s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1) :: e ! Interface height [Z ~> m].
+  real, dimension(:,:,:), contiguous, pointer :: e ! Interface height [Z ~> m].
                 ! e may be adjusted (with a nonlinear equation of state) so that
                 ! its derivative compensates for the adiabatic compressibility
                 ! in seawater, but e will still be close to the interface depth.
@@ -448,8 +489,19 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
   EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
 
+  call h_a%view(h) ; call PFu_a%view(PFu) ; call PFv_a%view(PFv)
+  call Gcore%bathyT%view(bathyT) ; call Gcore%meanSL%view(meanSL)
+  call Gcore%IdxCu%view(IdxCu) ; call Gcore%IdyCv%view(IdyCv)
+  call e_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke+1]) ; call e_a%view(e)
+  call rho_star_a%alloc(lb=[G%isd,G%jsd,1], ub=[G%ied,G%jed,GV%ke])
+  call rho_star_a%view(rho_star)
+  nullify(p_atm, pbce, eta)
+  if (p_atm_a%associated()) call p_atm_a%view(p_atm)
+  if (pbce_a%associated()) call pbce_a%view(pbce)
+  if (eta_a%associated()) call eta_a%view(eta)
+
   use_p_atm = associated(p_atm)
-  is_split = present(pbce)
+  is_split = pbce_a%associated()
   use_EOS = associated(tv%eqn_of_state)
 
   if (.not.CS%initialized) call MOM_error(FATAL, &
@@ -467,7 +519,7 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
 
   !$OMP parallel do default(shared)
   do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-    e(i,j,nz+1) = -G%bathyT(i,j)
+    e(i,j,nz+1) = -bathyT(i,j)
   enddo ; enddo
 
   ! Calculate and add the self-attraction and loading geopotential anomaly.
@@ -478,7 +530,7 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
     ! barotropic tides.
     !$OMP parallel do default(shared)
     do j=Jsq,Jeq+1
-      do i=Isq,Ieq+1 ; SSH(i,j) = min(-G%bathyT(i,j) - G%meanSL(i,j), 0.0) ; enddo
+      do i=Isq,Ieq+1 ; SSH(i,j) = min(-bathyT(i,j) - meanSL(i,j), 0.0) ; enddo
       do k=1,nz ; do i=Isq,Ieq+1
         SSH(i,j) = SSH(i,j) + h(i,j,k)*GV%H_to_Z
       enddo ; enddo
@@ -574,8 +626,12 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
     enddo
   endif ! use_EOS
 
-  if (present(pbce)) then
-    call Set_pbce_Bouss(e, tv_tmp, G, GV, US, CS%Rho0, CS%GFS_scale, pbce, rho_star, 1)
+  if (pbce_a%associated()) then
+    call g_prime_a%alloc(lb=LBOUND(GV%g_prime), ub=UBOUND(GV%g_prime), source=GV%g_prime)
+    call Set_pbce_Bouss(bxH0, bxQ0, e_a, tv_tmp, Gcore, G%isd, G%jsd, GV%ke, GV%H_to_Z, &
+                        GV%g_Earth, GV%Rho0, GV%dZ_subroundoff, g_prime_a, CS%Rho0, &
+                        CS%GFS_scale, pbce_a, rho_star_a, 1)
+    call g_prime_a%free()
   endif
 
 !    Calculate the pressure force. On a Cartesian grid,
@@ -587,17 +643,17 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
         h_star(i,j) = (e(i,j,K) - e(i,j,K+1)) + dz_neglect
       enddo ; enddo
       do j=js,je ; do I=Isq,Ieq
-        PFu_bc = -1.0*(rho_star(i+1,j,k) - rho_star(i,j,k)) * (G%IdxCu(I,j) * &
+        PFu_bc = -1.0*(rho_star(i+1,j,k) - rho_star(i,j,k)) * (IdxCu(I,j) * &
           ((h_star(i,j) * h_star(i+1,j) - ((e(i,j,K) * h_star(i+1,j)) + &
           (e(i+1,j,K) * h_star(i,j)))) / (h_star(i,j) + h_star(i+1,j))))
-        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * G%IdxCu(I,j) + PFu_bc
+        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * IdxCu(I,j) + PFu_bc
         if (allocated(CS%PFu_bc)) CS%PFu_bc(i,j,k) = PFu_bc
       enddo ; enddo
       do J=Jsq,Jeq ; do i=is,ie
-        PFv_bc = -1.0*(rho_star(i,j+1,k) - rho_star(i,j,k)) * (G%IdyCv(i,J) * &
+        PFv_bc = -1.0*(rho_star(i,j+1,k) - rho_star(i,j,k)) * (IdyCv(i,J) * &
           ((h_star(i,j) * h_star(i,j+1) - ((e(i,j,K) * h_star(i,j+1)) + &
           (e(i,j+1,K) * h_star(i,j)))) / (h_star(i,j) + h_star(i,j+1))))
-        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * G%IdyCv(i,J) + PFv_bc
+        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * IdyCv(i,J) + PFv_bc
         if (allocated(CS%PFv_bc)) CS%PFv_bc(i,j,k) = PFv_bc
       enddo ; enddo
     enddo ! k-loop
@@ -605,15 +661,15 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
     !$OMP parallel do default(shared)
     do k=1,nz
       do j=js,je ; do I=Isq,Ieq
-        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * G%IdxCu(I,j)
+        PFu(I,j,k) = -(M(i+1,j,k) - M(i,j,k)) * IdxCu(I,j)
       enddo ; enddo
       do J=Jsq,Jeq ; do i=is,ie
-        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * G%IdyCv(i,J)
+        PFv(i,J,k) = -(M(i,j+1,k) - M(i,j,k)) * IdyCv(i,J)
       enddo ; enddo
     enddo
   endif ! use_EOS
 
-  if (present(eta)) then
+  if (eta_a%associated()) then
     ! eta is the sea surface height relative to a time-invariant geoid, for
     ! comparison with what is used for eta in btstep.  See how e was calculated
     ! about 200 lines above.
@@ -644,37 +700,63 @@ subroutine PressureForce_Mont_Bouss(h, tv, PFu, PFv, G, GV, US, CS, p_atm, pbce,
   if (CS%id_e_tide_eq>0) call post_data(CS%id_e_tide_eq, e_tide_eq, CS%diag)
   if (CS%id_e_tide_sal>0) call post_data(CS%id_e_tide_sal, e_tide_sal, CS%diag)
 
+  call e_a%free() ; call rho_star_a%free()
+
 end subroutine PressureForce_Mont_Bouss
 
 !> Determines the partial derivative of the acceleration due
 !! to pressure forces with the free surface height.
-subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkblock)
-  type(ocean_grid_type),                intent(in)  :: G    !< Ocean grid structure
-  type(verticalGrid_type),              intent(in)  :: GV   !< Vertical grid structure
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in) :: e !< Interface height [Z ~> m].
+subroutine Set_pbce_Bouss(bxH0, bxQ0, e_a, tv, Gcore, isd, jsd, ke, H_to_Z, g_Earth, GV_Rho0, &
+                          dZ_subroundoff, g_prime_a, Rho0, GFS_scale, pbce_a, rho_star_a, nkblock)
+  type(Box_t),          intent(in)  :: bxH0 !< The h-point box of the whole column,
+                                            !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0 !< The B-grid-index box of the whole column,
+                                            !! [IscB:IecB, JscB:JecB, 1:nz]
+  type(RealArray_t), intent(in) :: e_a !< Interface height [Z ~> m].
   type(thermo_var_ptrs),                intent(in)  :: tv   !< Thermodynamic variables
-  type(unit_scale_type),                intent(in)  :: US   !< A dimensional unit scaling type
+  type(grid_core_type), intent(in)  :: Gcore !< Persistent copies of the core ocean grid fields
+  integer, intent(in) :: isd !< The start i-index of cell centers within the data domain
+  integer, intent(in) :: jsd !< The start j-index of cell centers within the data domain
+  integer, intent(in) :: ke  !< The number of layers/levels in the vertical
+  real,    intent(in) :: H_to_Z !< A constant that translates thickness units to the units of
+                                !! depth [Z H-1 ~> 1 or m3 kg-1].
+  real,    intent(in) :: g_Earth !< The gravitational acceleration [L2 Z-1 T-2 ~> m s-2].
+  real,    intent(in) :: GV_Rho0 !< The density used in the Boussinesq approximation or nominal
+                                 !! density used to convert depths into mass units [R ~> kg m-3].
+  real,    intent(in) :: dZ_subroundoff !< A thickness in height units that is so small that it
+                     !! can be added to a vertical distance of Angstrom_Z or 1e-17 m without
+                     !! changing it at the bit level [Z ~> m].  This is the height equivalent
+                     !! of H_subroundoff.
+  type(RealArray_t), intent(in) :: g_prime_a !< The reduced gravity at each interface
+                                             !! [L2 Z-1 T-2 ~> m s-2].
   real,                                 intent(in)  :: Rho0 !< The "Boussinesq" ocean density [R ~> kg m-3].
   real,                                 intent(in)  :: GFS_scale !< Ratio between gravity applied to top
                                                             !! interface and the gravitational acceleration of
                                                             !! the planet [nondim]. Usually this ratio is 1.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                                        intent(out) :: pbce !< The baroclinic pressure anomaly in each layer due
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each layer due
                                                             !! to free surface height anomalies
                                                             !! [L2 T-2 H-1 ~> m s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                              optional, intent(in)  :: rho_star !< The layer densities (maybe compressibility
+  type(RealArray_t), &
+                    intent(in) :: rho_star_a !< The layer densities (maybe compressibility
                                                             !! compensated), times g/rho_0 [L2 Z-1 T-2 ~> m s-2].
   integer, intent(in) :: nkblock !< The number of vertical levels in each block for the variable density
                                  !! near-surface layer.  This is needed to determine whether rho_star is
                                  !! compressibility compensated or not.
-  real :: Ihtot(SZI_(G),SZJ_(G))  ! The inverse of the sum of the layer thicknesses [H-1 ~> m-1 or m2 kg-1].
-  real :: press(SZI_(G),SZJ_(G),nkblock)  ! Interface pressure [R L2 T-2 ~> Pa].
-  real :: T_int(SZI_(G),SZJ_(G),nkblock)  ! Interface temperature [C ~> degC]
-  real :: S_int(SZI_(G),SZJ_(G),nkblock)  ! Interface salinity [S ~> ppt]
-  real :: dR_dT(SZI_(G),SZJ_(G),nkblock)  ! Partial derivative of density with temperature [R C-1 ~> kg m-3 degC-1]
-  real :: dR_dS(SZI_(G),SZJ_(G),nkblock)  ! Partial derivative of density with salinity [R S-1 ~> kg m-3 ppt-1].
-  real :: rho_in_situ(SZI_(G),SZJ_(G))  ! In-situ density at the top of a layer [R ~> kg m-3].
+  real, dimension(:,:,:), contiguous, pointer :: e, pbce, rho_star
+  real, dimension(:,:), contiguous, pointer :: meanSL
+  real, dimension(:), contiguous, pointer :: g_prime
+  real :: Ihtot(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2))  ! The inverse of the sum of the layer
+                                  ! thicknesses [H-1 ~> m-1 or m2 kg-1].
+  real :: press(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2),nkblock) ! Interface pressure
+                                  ! [R L2 T-2 ~> Pa].
+  real :: T_int(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2),nkblock) ! Interface temperature [C ~> degC]
+  real :: S_int(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2),nkblock)  ! Interface salinity [S ~> ppt]
+  real :: dR_dT(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2),nkblock)  ! Partial derivative of density
+                                  ! with temperature [R C-1 ~> kg m-3 degC-1]
+  real :: dR_dS(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2),nkblock)  ! Partial derivative of density
+                                  ! with salinity [R S-1 ~> kg m-3 ppt-1].
+  real :: rho_in_situ(e_a%lb(1):e_a%ub(1),e_a%lb(2):e_a%ub(2))  ! In-situ density at the top of a
+                                  ! layer [R ~> kg m-3].
   real :: G_Rho0             ! A scaled version of g_Earth / Rho0 [L2 Z-1 T-2 R-1 ~> m4 s-2 kg-1]
   real :: Rho0xG             ! g_Earth * Rho0 [R L2 Z-1 T-2 ~> kg s-2 m-2]
   logical :: use_EOS         ! If true, density is calculated from T & S using
@@ -683,23 +765,33 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkb
                              ! in roundoff and can be neglected [Z ~> m].
   integer :: EOSdom(3,2)     ! The computational domain for the equation of state
   integer :: Isq, Ieq, Jsq, Jeq, nz, i, j, k, kstart, kend, kk
+  integer :: iec, jec
+  type(Box_t) :: bxQ0_pij ! bxQ0 grown by one point at the end in i and j,
+                         ! [IscB:IecB+1, JscB:JecB+1, 1:nz]
+
+  call e_a%view(e) ; call pbce_a%view(pbce)
+  call Gcore%meanSL%view(meanSL) ; call g_prime_a%view(g_prime)
+  nullify(rho_star)
+  if (rho_star_a%associated()) call rho_star_a%view(rho_star)
 
   !$omp target data map(alloc: Ihtot)
-  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB ; nz = GV%ke
+  Isq = bxQ0%idxS(1) ; Ieq = bxQ0%idxE(1) ; Jsq = bxQ0%idxS(2) ; Jeq = bxQ0%idxE(2) ; nz = ke
+  iec = bxH0%idxE(1) ; jec = bxH0%idxE(2)
+  bxQ0_pij = bxQ0%growBy(lo=[0,0,0], hi=[1,1,0])
 
   use_EOS = associated(tv%eqn_of_state)
-  dz_neglect = GV%dZ_subroundoff
+  dz_neglect = dZ_subroundoff
 
   if (use_EOS) then
-    if (present(rho_star)) then
-      do concurrent (j=Jsq:Jeq+1)
-        do concurrent (i=Isq:Ieq+1)
-          Ihtot(i,j) = GV%H_to_Z / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
-          pbce(i,j,1) = GFS_scale * rho_star(i,j,1) * GV%H_to_Z
+    if (rho_star_a%associated()) then
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2))
+        do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
+          Ihtot(i,j) = H_to_Z / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
+          pbce(i,j,1) = GFS_scale * rho_star(i,j,1) * H_to_Z
         enddo
 
         do k=2,nz
-          do concurrent (i=Isq:Ieq+1)
+          do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
             pbce(i,j,k) = pbce(i,j,k-1) + (rho_star(i,j,k) - rho_star(i,j,k-1)) &
                 * ((e(i,j,K) - e(i,j,nz+1)) * Ihtot(i,j))
           enddo
@@ -710,21 +802,21 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkb
       !$omp   map(alloc: EOSdom, press, T_int, S_int, rho_in_situ) &
       !$omp   map(alloc: dR_dT, dR_dS)
 
-      Rho0xG = Rho0 * GV%g_Earth
-      G_Rho0 = GV%g_Earth / GV%Rho0
+      Rho0xG = Rho0 * g_Earth
+      G_Rho0 = g_Earth / GV_Rho0
 
-      EOSdom(1,:) = [Isq - (G%isd-1), G%iec+1 - (G%isd-1)]
-      EOSdom(2,:) = [Jsq - (G%jsd-1), G%jec+1 - (G%jsd-1)]
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
-        Ihtot(i,j) = GV%H_to_Z / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
-        press(i,j,1) = -Rho0xG * (e(i,j,1) - G%meanSL(i,j))
+      EOSdom(1,:) = [Isq - (isd-1), iec+1 - (isd-1)]
+      EOSdom(2,:) = [Jsq - (jsd-1), jec+1 - (jsd-1)]
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
+        Ihtot(i,j) = H_to_Z / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
+        press(i,j,1) = -Rho0xG * (e(i,j,1) - meanSL(i,j))
       enddo
 
       call calculate_density(tv%T(:,:,1), tv%S(:,:,1), press(:,:,1), rho_in_situ, &
                              tv%eqn_of_state, EOSdom(1:2,:))
 
-      do concurrent (j=Jsq:Jeq+1, i=Isq:Ieq+1)
-        pbce(i,j,1) = G_Rho0 * (GFS_scale * rho_in_situ(i,j)) * GV%H_to_Z
+      do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2), i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
+        pbce(i,j,1) = G_Rho0 * (GFS_scale * rho_in_situ(i,j)) * H_to_Z
       enddo
 
       EOSdom(3,1) = 1
@@ -732,7 +824,7 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkb
         kend = min(kstart+nkblock-1, nz)
         do concurrent (k=kstart:kend, j=Jsq:Jeq+1, i=Isq:Ieq+1)
           kk=k-kstart+1
-          press(i,j,kk) = -Rho0xG * (e(i,j,K) - G%meanSL(i,j))
+          press(i,j,kk) = -Rho0xG * (e(i,j,K) - meanSL(i,j))
           T_int(i,j,kk) = 0.5 * (tv%T(i,j,k-1) + tv%T(i,j,k))
           S_int(i,j,kk) = 0.5 * (tv%S(i,j,k-1) + tv%S(i,j,k))
         enddo
@@ -740,8 +832,8 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkb
         call calculate_density_derivs(T_int, S_int, press, dR_dT, dR_dS, &
                                       tv%eqn_of_state, EOSdom)
 
-        do concurrent(j=Jsq:Jeq+1)
-          do k=kstart,kend ; do concurrent (i=Isq:Ieq+1)
+        do concurrent(j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2))
+          do k=kstart,kend ; do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
           kk=k-kstart+1
           pbce(i,j,k) = pbce(i,j,k-1) + G_Rho0 * &
              ((e(i,j,K) - e(i,j,nz+1)) * Ihtot(i,j)) * &
@@ -753,50 +845,69 @@ subroutine Set_pbce_Bouss(e, tv, G, GV, US, Rho0, GFS_scale, pbce, rho_star, nkb
       !$omp end target data
     endif
   else
-    do concurrent (j=Jsq:Jeq+1)
-      do concurrent (i=Isq:Ieq+1)
+    do concurrent (j=bxQ0_pij%idxS(2):bxQ0_pij%idxE(2))
+      do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
         Ihtot(i,j) = 1.0 / ((e(i,j,1) - e(i,j,nz+1)) + dz_neglect)
-        pbce(i,j,1) = GV%g_prime(1) * GV%H_to_Z
+        pbce(i,j,1) = g_prime(1) * H_to_Z
       enddo
       do k=2,nz
-        do concurrent (i=Isq:Ieq+1)
-          pbce(i,j,k) = pbce(i,j,k-1) + (GV%g_prime(K) * GV%H_to_Z) &
+        do concurrent (i=bxQ0_pij%idxS(1):bxQ0_pij%idxE(1))
+          pbce(i,j,k) = pbce(i,j,k-1) + (g_prime(K) * H_to_Z) &
               * ((e(i,j,K) - e(i,j,nz+1)) * Ihtot(i,j))
         enddo
       enddo
     enddo
   endif
   !$omp end target data
+  call bxQ0_pij%free()
 end subroutine Set_pbce_Bouss
 
 !> Determines the partial derivative of the acceleration due
 !! to pressure forces with the column mass.
-subroutine Set_pbce_nonBouss(p, tv, G, GV, US, GFS_scale, pbce, alpha_star)
-  type(ocean_grid_type),                intent(in)  :: G  !< Ocean grid structure
-  type(verticalGrid_type),              intent(in)  :: GV !< Vertical grid structure
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)+1), intent(in) :: p !< Interface pressures [R L2 T-2 ~> Pa].
+subroutine Set_pbce_nonBouss(bxH0, bxQ0, p_a, tv, isd, ke, g_Earth, H_to_RZ, H_subroundoff, &
+                             Rlay_a, GFS_scale, pbce_a, alpha_star_a)
+  type(Box_t),          intent(in)  :: bxH0 !< The h-point box of the whole column,
+                                            !! [isc:iec, jsc:jec, 1:nz]
+  type(Box_t),          intent(in)  :: bxQ0 !< The B-grid-index box of the whole column,
+                                            !! [IscB:IecB, JscB:JecB, 1:nz]
+  type(RealArray_t), intent(in) :: p_a !< Interface pressures [R L2 T-2 ~> Pa].
   type(thermo_var_ptrs),                intent(in)  :: tv !< Thermodynamic variables
-  type(unit_scale_type),                intent(in)  :: US !< A dimensional unit scaling type
+  integer, intent(in) :: isd !< The start i-index of cell centers within the data domain
+  integer, intent(in) :: ke  !< The number of layers/levels in the vertical
+  real,    intent(in) :: g_Earth !< The gravitational acceleration [L2 Z-1 T-2 ~> m s-2].
+  real,    intent(in) :: H_to_RZ !< A constant that translates thickness units to the units of
+                                 !! mass per unit area [R Z H-1 ~> kg m-3 or 1].
+  real,    intent(in) :: H_subroundoff !< A thickness that is so small that it can be added to
+                     !! a thickness of Angstrom or larger without changing it at the bit level
+                     !! [H ~> m or kg m-2]. If Angstrom is 0 or exceedingly small, this is
+                     !! negligible compared to 1e-17 m.
+  type(RealArray_t), intent(in) :: Rlay_a !< The target coordinate value (potential density)
+                                          !! in each layer [R ~> kg m-3].
   real,                                 intent(in)  :: GFS_scale !< Ratio between gravity applied to top
                                                           !! interface and the gravitational acceleration of
                                                           !! the planet [nondim]. Usually this ratio is 1.
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), intent(out) :: pbce !< The baroclinic pressure anomaly in each
+  type(RealArray_t), intent(inout) :: pbce_a !< The baroclinic pressure anomaly in each
                                                           !! layer due to free surface height anomalies
                                                           !! [L2 H-1 T-2 ~> m4 kg-1 s-2].
-  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), optional, intent(in) :: alpha_star !< The layer specific volumes
+  type(RealArray_t), intent(in) :: alpha_star_a !< The layer specific volumes
                                                           !! (maybe compressibility compensated) [R-1 ~> m3 kg-1].
   ! Local variables
-  real, dimension(SZI_(G),SZJ_(G)) :: &
+  real, dimension(:,:,:), contiguous, pointer :: p, pbce, alpha_star
+  real, dimension(:), contiguous, pointer :: Rlay
+  real, dimension(p_a%lb(1):p_a%ub(1),p_a%lb(2):p_a%ub(2)) :: &
     dpbce, &      !   A barotropic correction to the pbce to enable the use of
                   ! a reduced gravity form of the equations [L2 H-1 T-2 ~> m4 kg-1 s-2].
     C_htot        ! dP_dH divided by the total ocean pressure [H-1 ~> m2 kg-1].
-  real :: T_int(SZI_(G))     ! Interface temperature [C ~> degC]
-  real :: S_int(SZI_(G))     ! Interface salinity [S ~> ppt]
-  real :: dR_dT(SZI_(G))     ! Partial derivative of density with temperature [R C-1 ~> kg m-3 degC-1]
-  real :: dR_dS(SZI_(G))     ! Partial derivative of density with salinity [R S-1 ~> kg m-3 ppt-1].
-  real :: rho_in_situ(SZI_(G)) ! In-situ density at an interface [R ~> kg m-3].
-  real :: alpha_Lay(SZK_(GV)) ! The specific volume of each layer [R-1 ~> m3 kg-1].
-  real :: dalpha_int(SZK_(GV)+1) ! The change in specific volume across each interface [R-1 ~> m3 kg-1].
+  real :: T_int(p_a%lb(1):p_a%ub(1))     ! Interface temperature [C ~> degC]
+  real :: S_int(p_a%lb(1):p_a%ub(1))     ! Interface salinity [S ~> ppt]
+  real :: dR_dT(p_a%lb(1):p_a%ub(1))     ! Partial derivative of density with temperature
+                             ! [R C-1 ~> kg m-3 degC-1]
+  real :: dR_dS(p_a%lb(1):p_a%ub(1))     ! Partial derivative of density with salinity
+                             ! [R S-1 ~> kg m-3 ppt-1].
+  real :: rho_in_situ(p_a%lb(1):p_a%ub(1)) ! In-situ density at an interface [R ~> kg m-3].
+  real :: alpha_Lay(pbce_a%lb(3):pbce_a%ub(3)) ! The specific volume of each layer [R-1 ~> m3 kg-1].
+  real :: dalpha_int(p_a%lb(3):p_a%ub(3)) ! The change in specific volume across each interface
+                             ! [R-1 ~> m3 kg-1].
   real :: dP_dH              ! A factor that converts from thickness to pressure times other dimensional
                              ! conversion factors [R L2 T-2 H-1 ~> Pa m2 kg-1].
   real :: dp_neglect         ! A thickness that is so small it is usually lost
@@ -804,17 +915,23 @@ subroutine Set_pbce_nonBouss(p, tv, G, GV, US, GFS_scale, pbce, alpha_star)
   logical :: use_EOS         ! If true, density is calculated from T & S using an equation of state.
   integer, dimension(2) :: EOSdom ! The computational domain for the equation of state
   integer :: Isq, Ieq, Jsq, Jeq, nz, i, j, k
+  integer :: iec
 
-  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB ; nz = GV%ke
-  EOSdom(1) = Isq - (G%isd-1) ;  EOSdom(2) = G%iec+1 - (G%isd-1)
+  Isq = bxQ0%idxS(1) ; Ieq = bxQ0%idxE(1) ; Jsq = bxQ0%idxS(2) ; Jeq = bxQ0%idxE(2) ; nz = ke
+  iec = bxH0%idxE(1)
+  EOSdom(1) = Isq - (isd-1) ;  EOSdom(2) = iec+1 - (isd-1)
+
+  call p_a%view(p) ; call pbce_a%view(pbce) ; call Rlay_a%view(Rlay)
+  nullify(alpha_star)
+  if (alpha_star_a%associated()) call alpha_star_a%view(alpha_star)
 
   use_EOS = associated(tv%eqn_of_state)
 
-  dP_dH = GV%g_Earth * GV%H_to_RZ
-  dp_neglect = GV%g_Earth * GV%H_to_RZ * GV%H_subroundoff
+  dP_dH = g_Earth * H_to_RZ
+  dp_neglect = g_Earth * H_to_RZ * H_subroundoff
 
   if (use_EOS) then
-    if (present(alpha_star)) then
+    if (alpha_star_a%associated()) then
       !$OMP parallel do default(shared)
       do j=Jsq,Jeq+1
         do i=Isq,Ieq+1
@@ -853,7 +970,7 @@ subroutine Set_pbce_nonBouss(p, tv, G, GV, US, GFS_scale, pbce, alpha_star)
     endif
   else ! not use_EOS
 
-    do k=1,nz ; alpha_Lay(k) = 1.0 / (GV%Rlay(k)) ; enddo
+    do k=1,nz ; alpha_Lay(k) = 1.0 / (Rlay(k)) ; enddo
     do k=2,nz ; dalpha_int(K) = alpha_Lay(k-1) - alpha_Lay(k) ; enddo
 
     !$OMP parallel do default(shared)
