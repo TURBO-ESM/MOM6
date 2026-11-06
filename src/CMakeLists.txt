@@ -23,7 +23,7 @@ target_link_libraries(mom6_ocean
 # compiles and is not part of its interface.
 #
 # Keyed on the backend rather than on an opt-in flag. The guarded branches exist
-# only on this branch -- dev/turbo, dev/ncar and the rest carry none -- so a build
+# only on this branch -- turbo, dev/ncar and the rest carry none -- so a build
 # option would only ever be turned on, by everyone, everywhere this file is used.
 # The backend is the one thing that genuinely varies: FMS2 cannot provide
 # turbotmp_*_bridge, so under FMS2 the branches must stay compiled out.
