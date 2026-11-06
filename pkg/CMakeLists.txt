@@ -231,5 +231,6 @@ target_sources(mom6_gsw PRIVATE
 # plugin that the parent project (turbo-stack) builds and provides as a
 # pre-defined CMake target before calling add_subdirectory on this repo —
 # the same pattern as FMS::fms_r8.  src/CMakeLists.txt links against it
-# directly.  If MARBL::marbl is not defined at configure time the build will
-# fail with a clear "target not found" error.
+# directly.  If MARBL::marbl is not defined, the top-level CMakeLists.txt
+# builds MARBL from MARBL_SOURCE_DIR when that is set, and the MARBL API stubs
+# in config_src/external/MARBL otherwise.

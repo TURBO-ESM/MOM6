@@ -59,14 +59,36 @@ endif()
 if(NOT TARGET MARBL::marbl)
     if(NOT MARBL_SOURCE_DIR)
         set(MARBL_SOURCE_DIR "$ENV{MARBL_ROOT}" CACHE PATH
-            "Path to MARBL source checkout (required for standalone MOM6 builds)")
+            "Path to a MARBL source checkout to build (default: the MARBL API stubs)")
     endif()
-    if(NOT MARBL_SOURCE_DIR OR NOT IS_DIRECTORY "${MARBL_SOURCE_DIR}")
+    if(NOT MARBL_SOURCE_DIR)
+        # No MARBL source given: build the API stubs in config_src/external/MARBL,
+        # as the autoconf build does.
+        message(STATUS "MARBL::marbl not defined and MARBL_SOURCE_DIR not set: "
+            "using the MARBL API stubs in config_src/external/MARBL")
+        set(_marbl_stubs "${MOM6_SOURCE_DIR}/config_src/external/MARBL")
+        add_library(mom6_marbl_stubs STATIC
+            ${_marbl_stubs}/marbl_constants_mod.F90
+            ${_marbl_stubs}/marbl_interface.F90
+            ${_marbl_stubs}/marbl_interface_public_types.F90
+            ${_marbl_stubs}/marbl_logging.F90
+        )
+        add_library(MARBL::marbl ALIAS mom6_marbl_stubs)
+        set_target_properties(mom6_marbl_stubs PROPERTIES
+            Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/marbl/mod)
+        target_include_directories(mom6_marbl_stubs
+            INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/marbl/mod>)
+        # marbl_interface.F90 reports errors through MOM_error_handler
+        target_link_libraries(mom6_marbl_stubs PRIVATE MOM6::framework)
+        unset(_marbl_stubs)
+    elseif(NOT IS_DIRECTORY "${MARBL_SOURCE_DIR}")
         message(FATAL_ERROR
-            "MARBL::marbl not defined and MARBL_SOURCE_DIR is not set or invalid.\n"
-            "Set MARBL_ROOT in the environment or pass -DMARBL_SOURCE_DIR=/path/to/MARBL")
+            "MARBL_SOURCE_DIR (${MARBL_SOURCE_DIR}) is not a directory.\n"
+            "Point MARBL_ROOT or -DMARBL_SOURCE_DIR at a MARBL source checkout, "
+            "or unset both to use the MARBL API stubs")
+    else()
+        include(MARBLTargets)
     endif()
-    include(MARBLTargets)
 endif()
 
 # pkg/CVMix-src and pkg/GSW-Fortran are git submodules. Fail noisily here if
