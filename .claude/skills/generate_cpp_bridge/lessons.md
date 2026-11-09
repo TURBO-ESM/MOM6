@@ -60,10 +60,10 @@ now wrong:
 `generate_cpp_bridge` operates on a pre-existing TURBO-ESM/MOM6
 checkout. The work directory must already contain the source tree (i.e.
 have `src/` and `config_src/`) and be on (or rebased onto) the
-`dev/turbo-debug` branch. Cloning is not performed — use
+`iturbo` branch. Cloning is not performed — use
 
 ```
-git clone -b dev/turbo-debug git@github.com:TURBO-ESM/MOM6.git <dir>
+git clone -b iturbo git@github.com:TURBO-ESM/MOM6.git <dir>
 ```
 
 once to set up the directory, then pass it as `<work-directory>` on

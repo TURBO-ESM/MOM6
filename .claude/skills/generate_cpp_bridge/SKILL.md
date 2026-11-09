@@ -34,7 +34,7 @@ IntArray_t containers with a Box_t iteration domain. If not, run
 
 Arguments:
   <work-directory>       An existing TURBO-ESM/MOM6 checkout (src/, config_src/),
-                         on dev/turbo-debug. Cloning is not performed.
+                         on iturbo. Cloning is not performed.
   <function-name>        The subroutine to wrap (case-insensitive).
   --enable_src_validate  Also run Step 1: check the checkout, branch and target.
   --enable_git_commit    Commit and push this run (overrides the global preference).
@@ -73,7 +73,7 @@ The shim's argument list is not a decision: it is the converted subroutine's, ve
 ### 1. Validate the checkout (only with `--enable_src_validate`)
 
 - `git remote -v` names `TURBO-ESM/MOM6`; `src/` and `config_src/` exist.
-- The tree is clean (never stash or discard). HEAD is at `origin/dev/turbo-debug` (fetch first
+- The tree is clean (never stash or discard). HEAD is at `origin/iturbo` (fetch first
   only if the user's instructions allow contacting the remote); if not, ask before switching
   branches.
 - Exactly one `subroutine <function-name>` declaration under `src/` or `config_src/`; none is an
